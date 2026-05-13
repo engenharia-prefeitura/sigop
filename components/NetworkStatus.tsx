@@ -100,16 +100,16 @@ const NetworkStatus: React.FC = () => {
 
     return (
         <div
-            className={`fixed right-2 top-2 z-[9999] flex max-w-[calc(100vw-1rem)] items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-semibold shadow-lg transition-all duration-300 sm:bottom-4 sm:right-4 sm:top-auto sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs ${getStatusColor()} ${status === 'offline' ? 'opacity-100' : 'opacity-80 hover:opacity-100'}`}
+            className={`flex max-w-28 items-center justify-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-black leading-none shadow-sm transition-all duration-300 sm:max-w-36 sm:px-2 sm:py-1 sm:text-[10px] ${getStatusColor()} ${status === 'offline' ? 'opacity-100' : 'opacity-90 hover:opacity-100'}`}
             title="Status da Conexão com a Internet"
         >
-            <span className="relative flex h-2 w-2 flex-none sm:h-2.5 sm:w-2.5">
+            <span className="relative flex h-1.5 w-1.5 flex-none sm:h-2 sm:w-2">
                 {status === 'online' && (
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${getIndicatorColor()} opacity-75`}></span>
                 )}
-                <span className={`relative inline-flex h-2 w-2 rounded-full sm:h-2.5 sm:w-2.5 ${getIndicatorColor()}`}></span>
+                <span className={`relative inline-flex h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2 ${getIndicatorColor()}`}></span>
             </span>
-            <span className="whitespace-nowrap">{getStatusText()}</span>
+            <span className="truncate whitespace-nowrap">{getStatusText()}</span>
         </div>
     );
 };

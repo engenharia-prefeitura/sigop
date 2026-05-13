@@ -6,6 +6,7 @@ import { isRelationUnavailable, rememberMissingRelation } from '../lib/supabaseC
 
 import { AgendaDrawer } from './Agenda';
 import { useAuth } from './AuthContext';
+import NetworkStatus from './NetworkStatus';
 
 const Header: React.FC = () => {
   const location = useLocation();
@@ -80,7 +81,7 @@ const Header: React.FC = () => {
   };
 
   return (
-    <header className="flex h-16 items-center justify-between whitespace-nowrap border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#101622] px-8 sticky top-0 z-20 shrink-0 shadow-sm print:hidden">
+    <header className="flex h-20 items-center justify-between whitespace-nowrap border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#101622] px-4 sm:px-8 sticky top-0 z-20 shrink-0 shadow-sm print:hidden">
       <div className="flex items-center gap-4">
         <h2 className="text-[#111318] dark:text-white text-xl font-bold leading-tight">{getPageTitle()}</h2>
       </div>
@@ -118,14 +119,17 @@ const Header: React.FC = () => {
               <p className="text-sm font-semibold text-[#111318] dark:text-white leading-none">{userName}</p>
               <p className="text-[10px] text-[#616f89] uppercase font-bold tracking-wider mt-1">{userRole}</p>
             </div>
-            <div
-              className="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10 ring-2 ring-white dark:ring-[#101622] shadow-sm relative group"
-              style={{ backgroundImage: `url("${userAvatar}")` }}
-            >
-              <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
-              <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                <span className="material-symbols-outlined text-white text-xs">calendar_month</span>
+            <div className="flex flex-col items-center gap-1">
+              <div
+                className="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10 ring-2 ring-white dark:ring-[#101622] shadow-sm relative group"
+                style={{ backgroundImage: `url("${userAvatar}")` }}
+              >
+                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+                <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <span className="material-symbols-outlined text-white text-xs">calendar_month</span>
+                </div>
               </div>
+              <NetworkStatus />
             </div>
           </button>
         </div>

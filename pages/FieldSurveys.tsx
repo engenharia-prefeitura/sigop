@@ -371,7 +371,7 @@ const FieldSurveys: React.FC = () => {
     };
 
     localStorage.setItem('draft_notif_new', JSON.stringify(draft));
-    navigate('/notifications');
+    navigate('/notifications', { state: { openDraftNotification: true } });
   };
 
   const startNewSurvey = () => {

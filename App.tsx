@@ -17,7 +17,6 @@ import FieldSurveys from './pages/FieldSurveys';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import { AuthProvider, useAuth } from './components/AuthContext';
-import NetworkStatus from './components/NetworkStatus';
 import { AgendaNotifier } from './components/Agenda';
 
 // --- Guards & Layouts ---
@@ -60,7 +59,6 @@ const MainLayout = () => {
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
-        <NetworkStatus />
       </div>
     </div>
   );

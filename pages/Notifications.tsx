@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useBlocker } from 'react-router-dom'; // Added useBlocker
+import { useBlocker, useLocation } from 'react-router-dom'; // Added useBlocker
 import { supabase } from '../lib/supabase';
 import { isRelationUnavailable, rememberMissingRelation } from '../lib/supabaseCompat';
 import { compressImage } from '../utils/imageCompressor';
@@ -16,6 +16,7 @@ const useDebounce = (value: any, delay: number) => {
 };
 
 const Notifications: React.FC = () => {
+    const location = useLocation();
     const [loading, setLoading] = useState(false);
     const [showForm, setShowForm] = useState(false);
     const [history, setHistory] = useState<any[]>([]);
@@ -336,6 +337,13 @@ const Notifications: React.FC = () => {
         setShowForm(true);
         if (loaded) setTimeout(() => setIsDirty(true), 600);
     }
+
+    useEffect(() => {
+        if ((location.state as any)?.openDraftNotification) {
+            openNew();
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     // Wrapped toggle for the main button
     const handleToggleForm = () => {

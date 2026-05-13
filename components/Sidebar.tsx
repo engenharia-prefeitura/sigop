@@ -50,7 +50,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
 
   return (
     <aside className={`${collapsed ? 'w-20' : 'w-64'} flex-none flex flex-col bg-[#1e293b] dark:bg-[#101622] text-white h-full border-r border-slate-700/50 z-30 transition-all duration-300 print:hidden`}>
-      <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} gap-3 px-4 py-6 border-b border-slate-700/50 relative group`}>
+      <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} gap-3 px-4 py-4 border-b border-slate-700/50 relative group`}>
         <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''} overflow-hidden`}>
           <div className="bg-primary rounded-lg size-10 flex-none flex items-center justify-center text-white">
             <span className="material-symbols-outlined !text-3xl">architecture</span>
@@ -74,7 +74,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         </button>
       </div>
 
-      <nav className="flex-1 flex flex-col gap-2 p-3 overflow-y-auto">
+      <nav className="flex-1 flex flex-col gap-1 p-2 overflow-y-auto">
         {visibleItems.map((item) => (
           <React.Fragment key={item.path}>
             <NavLink
@@ -82,7 +82,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
               end={item.children ? false : undefined}
               title={collapsed ? item.label : ''}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-3 rounded-lg transition-all ${isActive && !item.children
+                `flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${isActive && !item.children
                   ? 'bg-primary text-white shadow-md shadow-primary/20'
                   : (location.pathname.startsWith(item.path) && item.children ? 'bg-primary/10 text-primary' : 'text-slate-300 hover:bg-white/5 hover:text-white')
                 } ${collapsed ? 'justify-center' : ''}`
@@ -119,12 +119,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         ))}
       </nav>
 
-      <div className="p-3 mt-auto border-t border-slate-700/50 flex flex-col gap-1">
+      <div className="p-2 mt-auto border-t border-slate-700/50 flex flex-col gap-1">
         <NavLink
           to="/settings"
           title={collapsed ? 'Configurações' : ''}
           className={({ isActive }) =>
-            `flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive ? 'bg-primary/20 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white'
+            `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${isActive ? 'bg-primary/20 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white'
             } ${collapsed ? 'justify-center' : ''}`
           }
         >
@@ -134,7 +134,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         <button
           onClick={onLogout}
           title={collapsed ? 'Sair' : ''}
-          className={`flex items-center gap-3 px-3 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors w-full text-left ${collapsed ? 'justify-center' : ''}`}
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors w-full text-left ${collapsed ? 'justify-center' : ''}`}
         >
           <span className="material-symbols-outlined text-2xl">logout</span>
           {!collapsed && <p className="text-sm font-medium leading-normal whitespace-nowrap overflow-hidden">Sair</p>}
