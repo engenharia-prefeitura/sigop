@@ -13,7 +13,7 @@ import {
   type AiSettings
 } from '../lib/localAi';
 
-const INSTALLER_PATH = './ai/install_sigop_ai_assistant.ps1';
+const INSTALLER_PATH = './ai/INSTALAR_ASSISTENTE_IA_SIGOP.bat';
 
 const toLines = (items: string[]) => items.join('\n');
 const fromLines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean);
@@ -164,7 +164,7 @@ const AIAssistantSettings: React.FC = () => {
               Baixar modelo
             </button>
             <a href={INSTALLER_PATH} download className="rounded-xl bg-emerald-600 px-5 py-3 text-xs font-black uppercase text-white hover:bg-emerald-700">
-              Baixar instalador
+              Baixar instalador facil
             </a>
           </div>
 
@@ -178,8 +178,8 @@ const AIAssistantSettings: React.FC = () => {
         <div className="rounded-3xl border border-blue-100 bg-blue-50 p-6 text-blue-950 shadow-sm">
           <h3 className="text-lg font-black">Como instalar</h3>
           <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm font-medium">
-            <li>Baixe o instalador do Assistente SIGOP.</li>
-            <li>Execute no Windows com permissao do usuario.</li>
+            <li>Baixe o instalador facil em arquivo BAT.</li>
+            <li>Abra o arquivo baixado e confirme a execucao no Windows.</li>
             <li>Volte aqui e clique em Verificar IA local.</li>
             <li>Se o Ollama estiver ativo, use Baixar modelo quando quiser trocar de modelo.</li>
           </ol>
