@@ -82,6 +82,11 @@ const getPhotoLocationStamp = (): Promise<ImageLocationStamp> => {
   });
 };
 
+const isMobileDevice = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
+
 const statusMeta = {
   draft: { label: 'Rascunho local', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: 'edit_note' },
   pending: { label: 'Aguardando envio', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: 'sync_problem' },
@@ -115,6 +120,7 @@ const FieldSurveys: React.FC = () => {
   const draftCount = useMemo(() => surveys.filter(item => item.status === 'draft').length, [surveys]);
   const activeRemoteSurveys = useMemo(() => remoteSurveys.filter(remote => !remote.archivedAt), [remoteSurveys]);
   const archivedRemoteSurveys = useMemo(() => remoteSurveys.filter(remote => !!remote.archivedAt), [remoteSurveys]);
+  const canTakePhoto = useMemo(() => isMobileDevice(), []);
 
   useEffect(() => {
     loadLocalData();
@@ -188,13 +194,14 @@ const FieldSurveys: React.FC = () => {
   const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>, applyGeoStamp = false) => {
     const files = event.target.files;
     if (!files?.length) return;
+    const shouldApplyGeoStamp = applyGeoStamp && canTakePhoto;
 
     setIsSaving(true);
     setPhotoUploadStatus(`Preparando ${files.length} foto(s)...`);
     try {
       const photos: FieldSurveyPhoto[] = [];
-      if (applyGeoStamp) setPhotoUploadStatus('Obtendo geolocalizacao...');
-      const locationStamp = applyGeoStamp ? await getPhotoLocationStamp() : null;
+      if (shouldApplyGeoStamp) setPhotoUploadStatus('Obtendo geolocalizacao...');
+      const locationStamp = shouldApplyGeoStamp ? await getPhotoLocationStamp() : null;
 
       for (let index = 0; index < files.length; index++) {
         setPhotoUploadStatus(`Processando foto ${index + 1} de ${files.length}...`);
@@ -214,7 +221,7 @@ const FieldSurveys: React.FC = () => {
 
       updateForm({ photos: [...form.photos, ...photos] });
       event.target.value = '';
-      if (!applyGeoStamp) {
+      if (!shouldApplyGeoStamp) {
         setMessage('Foto anexada sem tarja de geolocalizacao.');
       } else {
         setMessage(
@@ -756,19 +763,21 @@ const FieldSurveys: React.FC = () => {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <span className="text-xs font-black uppercase text-slate-500">Fotos</span>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 ${isSaving ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
-                      <span className="material-symbols-outlined text-[18px]">add_a_photo</span>
-                      Tirar foto
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        multiple
-                        disabled={isSaving}
-                        className="hidden"
-                        onChange={event => handlePhotoUpload(event, true)}
-                      />
-                    </label>
+                    {canTakePhoto && (
+                      <label className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 ${isSaving ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+                        <span className="material-symbols-outlined text-[18px]">add_a_photo</span>
+                        Tirar foto
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          multiple
+                          disabled={isSaving}
+                          className="hidden"
+                          onChange={event => handlePhotoUpload(event, true)}
+                        />
+                      </label>
+                    )}
                     <label className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 ${isSaving ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                       <span className="material-symbols-outlined text-[18px]">photo_library</span>
                       Anexar foto
