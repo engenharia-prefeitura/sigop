@@ -1,0 +1,135 @@
+<html>
+<head>
+<title>Painel SIGOP</title>
+<meta http-equiv="x-ua-compatible" content="ie=edge">
+<meta charset="UTF-8">
+<HTA:APPLICATION 
+     ID="SIGOPApp"
+     APPLICATIONNAME="SIGOP Launcher"
+     BORDER="dialog"
+     CAPTION="yes"
+     ICON="app.ico"
+     SHOWINTASKBAR="yes"
+     SINGLEINSTANCE="yes"
+     SYSMENU="yes"
+     SCROLL="no">
+<style>
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #f3f4f6; text-align: center; padding: 20px; overflow: hidden; }
+    h1 { font-size: 18px; color: #111827; margin-bottom: 5px; }
+    p { font-size: 11px; color: #6b7280; margin-bottom: 15px; }
+    .status-box { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 15px; }
+    #status { font-weight: bold; font-size: 14px; }
+    button { width: 100%; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-bottom: 8px; font-size: 13px; }
+    .btn-start { background-color: #2563eb; color: white; }
+    .btn-start:disabled { background-color: #93c5fd; cursor: default; }
+    .btn-stop { background-color: #dc2626; color: white; }
+    .btn-stop:disabled { background-color: #fca5a5; cursor: default; }
+    .btn-open { background-color: #059669; color: white; }
+    .btn-open:disabled { background-color: #6ee7b7; cursor: default; }
+    .footer { font-size: 10px; color: #9ca3af; margin-top: 10px; border-top: 1px solid #e5e7eb; padding-top: 8px; text-align: left; }
+</style>
+<script>
+    var objShell = new ActiveXObject("WScript.Shell");
+    var objFSO = new ActiveXObject("Scripting.FileSystemObject");
+    var tmpFile = objShell.ExpandEnvironmentStrings("%TEMP%") + "\\sigop_status.tmp";
+
+    function window_onload() {
+        window.resizeTo(360, 500);
+        checkStatus();
+        setInterval(checkStatus, 3000); // Checagem mais frequente
+    }
+
+    function checkStatus() {
+        try {
+            // Verifica quem esta ouvindo na porta 5173
+            objShell.Run("cmd /c netstat -ano | findstr :5173 > \"" + tmpFile + "\"", 0, true);
+            var isOnline = false;
+            
+            if (objFSO.FileExists(tmpFile)) {
+                var file = objFSO.OpenTextFile(tmpFile, 1);
+                var content = "";
+                if (!file.AtEndOfStream) content = file.ReadAll();
+                file.Close();
+                
+                if (content.indexOf("LISTENING") !== -1) {
+                    isOnline = true;
+                }
+                objFSO.DeleteFile(tmpFile);
+            }
+
+            var statusEl = document.getElementById("status");
+            var btnStart = document.getElementById("btnStart");
+            var btnStop = document.getElementById("btnStop");
+            var btnOpen = document.getElementById("btnOpen");
+
+            if (isOnline) {
+                statusEl.innerHTML = "<span style='color:#059669'>ONLINE (Servidor Ativo)</span>";
+                btnStart.disabled = true;
+                btnStop.disabled = false;
+                btnOpen.disabled = false;
+            } else {
+                statusEl.innerHTML = "<span style='color:#dc2626'>OFFLINE (Servidor Parado)</span>";
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+                btnOpen.disabled = true;
+            }
+        } catch (e) {
+            // Silencioso
+        }
+    }
+
+    function startServer() {
+        document.getElementById("status").innerHTML = "<span style='color:#d97706'>INICIANDO...</span>";
+        objShell.Run("cmd /c iniciar_servidor_oculto.vbs", 0, false);
+        // Inicia o icone da bandeja
+        objShell.Run("cmd /c iniciar_tray.vbs", 0, false);
+        // Da um tempo maior para o status mudar
+        setTimeout(checkStatus, 4000);
+    }
+
+    function stopServer() {
+        if (confirm("Deseja parar o servidor SIGOP?\nIsso encerrara todos os processos node.exe.")) {
+            try {
+                // Comando matador universal para node no windows
+                objShell.Run("cmd /c taskkill /F /IM node.exe /T", 0, true);
+                
+                // Forca limpeza adicional pela porta caso o node continue vivo
+                objShell.Run("cmd /c for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING') do taskkill /F /PID %a", 0, true);
+                
+                document.getElementById("status").innerHTML = "<span style='color:#d97706'>DESLIGANDO...</span>";
+            } catch (e) {
+                // Se falhar o PID, o IM node ja deve ter resolvido
+            }
+            setTimeout(checkStatus, 2000);
+        }
+    }
+
+    function openBrowser() {
+        try {
+            objShell.Run("msedge.exe http://localhost:5173", 1, false);
+        } catch (e) {
+            objShell.Run("http://localhost:5173", 1, false);
+        }
+    }
+</script>
+</head>
+<body onload="window_onload()">
+    <h1>Painel SIGOP</h1>
+    <p>Gerenciador de Aplicacao Local</p>
+
+    <div class="status-box">
+        STATUS: <span id="status">VERIFICANDO...</span>
+    </div>
+
+    <button id="btnStart" class="btn-start" onclick="startServer()">LIGAR SERVIDOR</button>
+    <button id="btnOpen" class="btn-open" onclick="openBrowser()" disabled>ABRIR NO MICROSOFT EDGE</button>
+    <button id="btnStop" class="btn-stop" onclick="stopServer()" disabled>DESLIGAR SERVIDOR</button>
+
+    <div class="footer">
+        <strong style="color: #dc2626;">ATENCAO:</strong><br>
+        1. Use apenas o <b>Microsoft Edge</b> para imprimir PDFs.<br>
+        2. Se o servidor nao desligar, clique novamente em "Desligar".<br>
+        3. Se fechar esta janela, o servidor continua em segundo plano.
+    </div>
+</body>
+</html>

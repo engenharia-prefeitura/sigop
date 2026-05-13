@@ -1,0 +1,164 @@
+
+      {activeTab === 'pessoas' && isAdmin && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Gerenciar Pessoas</h3>
+
+            {/* Controles */}
+            <div className="flex flex-wrap gap-3 mb-6">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleImportXLSX}
+                style={{ display: 'none' }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loadingPessoas}
+                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-blue-700 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[20px]">upload_file</span>
+                Importar XLSX
+              </button>
+              <button
+                onClick={fetchPessoas}
+                disabled={loadingPessoas}
+                className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-gray-700 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[20px]">refresh</span>
+                Atualizar
+              </button>
+              <button
+                onClick={handleClearAllPessoas}
+                disabled={loadingPessoas}
+                className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-red-700 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[20px]">delete_forever</span>
+                Limpar Tabela
+              </button>
+            </div>
+
+            {/* Barra de Progresso */}
+            {importProgress.percent > 0 && (
+              <div className="mb-4 bg-gray-100 rounded-lg p-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-bold text-gray-700">Importando...</span>
+                  <span className="text-sm font-bold text-primary">{importProgress.percent}%</span>
+                </div>
+                <div className="w-full bg-gray-300 rounded-full h-3 overflow-hidden">
+                  <div 
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-full transition-all duration-300 ease-out"
+                    style={{ width: `${importProgress.percent}%` }}
+                  />
+                </div>
+                <p className="text-xs text-gray-600 mt-2 text-center">
+                  {importProgress.current.toLocaleString()} / {importProgress.total.toLocaleString()} registros
+                </p>
+              </div>
+            )}
+
+            {/* Busca */}
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Buscar por nome, CPF/CNPJ ou código..."
+                value={searchPessoas}
+                onChange={e => setSearchPessoas(e.target.value)}
+                className="w-full bg-gray-50 border rounded-lg px-4 py-2 font-medium outline-none focus:ring-2 ring-primary/20"
+              />
+            </div>
+
+            {/* Contador */}
+            <p className="text-sm text-gray-600 mb-4">
+              Total: <span className="font-bold">{pessoas.length}</span> pessoa(s)
+              {searchPessoas && (
+                <span> | Filtradas: <span className="font-bold">
+                  {pessoas.filter(p =>
+                    p.nome?.toLowerCase().includes(searchPessoas.toLowerCase()) ||
+                    p.cpf_cnpj?.includes(searchPessoas) ||
+                    p.codigo?.includes(searchPessoas)
+                  ).length}
+                </span></span>
+              )}
+            </p>
+
+            {/* Tabela */}
+            {loadingPessoas ? (
+              <div className="text-center py-10 text-gray-500">Carregando...</div>
+            ) : (
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100 border-b">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-bold text-gray-700">Código</th>
+                      <th className="px-3 py-2 text-left font-bold text-gray-700">Nome</th>
+                      <th className="px-3 py-2 text-left font-bold text-gray-700">Tipo</th>
+                      <th className="px-3 py-2 text-left font-bold text-gray-700">CPF/CNPJ</th>
+                      <th className="px-3 py-2 text-left font-bold text-gray-700">Situação</th>
+                      <th className="px-3 py-2 text-left font-bold text-gray-700">Cadastro</th>
+                      <th className="px-3 py-2 text-center font-bold text-gray-700">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pessoas
+                      .filter(p =>
+                        !searchPessoas ||
+                        p.nome?.toLowerCase().includes(searchPessoas.toLowerCase()) ||
+                        p.cpf_cnpj?.includes(searchPessoas) ||
+                        p.codigo?.includes(searchPessoas)
+                      )
+                      .slice(0, 100)
+                      .map(pessoa => (
+                        <tr key={pessoa.id} className="border-b hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-600">{pessoa.codigo || '-'}</td>
+                          <td className="px-3 py-2 font-medium text-gray-900">{pessoa.nome}</td>
+                          <td className="px-3 py-2 text-gray-600">{pessoa.tipo_pessoa || '-'}</td>
+                          <td className="px-3 py-2 text-gray-600 font-mono text-xs">{pessoa.cpf_cnpj || '-'}</td>
+                          <td className="px-3 py-2">
+                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${pessoa.situacao === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                              {pessoa.situacao || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${pessoa.cadastro_incompleto ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>
+                              {pessoa.cadastro_incompleto ? 'Incompleto' : 'Completo'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              onClick={() => handleDeletePessoa(pessoa.id)}
+                              className="text-red-600 hover:text-red-800 font-bold text-xs"
+                            >
+                              Excluir
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+                {pessoas.filter(p =>
+                  !searchPessoas ||
+                  p.nome?.toLowerCase().includes(searchPessoas.toLowerCase()) ||
+                  p.cpf_cnpj?.includes(searchPessoas) ||
+                  p.codigo?.includes(searchPessoas)
+                ).length > 100 && (
+                  <div className="p-3 bg-yellow-50 text-yellow-800 text-xs text-center">
+                    Mostrando apenas os primeiros 100 resultados. Use a busca para filtrar.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+            <p className="font-bold mb-2">📋 Como importar pessoas:</p>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>O arquivo deve ser <strong>Excel (.xlsx)</strong> com colunas específicas</li>
+              <li><strong>Colunas necessárias:</strong> A=Código, B=Nome, E=Tipo Pessoa, F=CPF/CNPJ, G=Situação, J=Cadastro Incompleto</li>
+              <li>Os dados devem começar na <strong>linha 6</strong> (linhas 1-5 são ignoradas/cabeçalhos)</li>
+              <li>Use "Limpar Tabela" antes de reimportar para evitar duplicatas</li>
+            </ol>
+          </div>
+        </div>
+      )}

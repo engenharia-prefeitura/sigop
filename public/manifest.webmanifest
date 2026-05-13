@@ -1,0 +1,19 @@
+{
+  "name": "SIGOP - Campo e Obras",
+  "short_name": "SIGOP",
+  "description": "Sistema de gerenciamento de obras publicas com levantamentos offline de campo.",
+  "start_url": "./#/field-surveys",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f6f8",
+  "theme_color": "#135bec",
+  "icons": [
+    {
+      "src": "./sigop-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

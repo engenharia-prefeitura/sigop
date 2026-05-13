@@ -1,0 +1,7 @@
+{
+  "name": "SIGOP - Sistema de Gerenciamento de Obras Públicas",
+  "description": "Plataforma completa para gestão, fiscalização e documentação técnica de obras municipais e infraestrutura urbana.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
