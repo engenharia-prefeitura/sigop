@@ -4,6 +4,7 @@ import { useBlocker, useLocation } from 'react-router-dom'; // Added useBlocker
 import { supabase } from '../lib/supabase';
 import { isRelationUnavailable, rememberMissingRelation } from '../lib/supabaseCompat';
 import { compressImage } from '../utils/imageCompressor';
+import { markFieldSurveyNotification } from '../lib/offlineFieldStore';
 
 // Helper de debounce
 const useDebounce = (value: any, delay: number) => {
@@ -37,6 +38,8 @@ const Notifications: React.FC = () => {
     const [selectedInfracoes, setSelectedInfracoes] = useState<any[]>([]);
     const [fotos, setFotos] = useState<string[]>([]); // Base64 strings
     const [photosPerPage, setPhotosPerPage] = useState(4);
+    const [sourceFieldSurveyId, setSourceFieldSurveyId] = useState<string | null>(null);
+    const [sourceFieldSurveyTitle, setSourceFieldSurveyTitle] = useState('');
 
     // Configs
     const [availableModels, setAvailableModels] = useState<any[]>([]);
@@ -51,7 +54,7 @@ const Notifications: React.FC = () => {
 
     // Debounce dos campos principais para salvar no storage
     const debouncedForm = useDebounce({
-        tipoId, textoPadrao, selectedPessoa, locInfracao, prazoDias, multaValor, observacoes, selectedInfracoes, fotos, photosPerPage, authorId, coAuthorId
+        tipoId, textoPadrao, selectedPessoa, locInfracao, prazoDias, multaValor, observacoes, selectedInfracoes, fotos, photosPerPage, authorId, coAuthorId, sourceFieldSurveyId, sourceFieldSurveyTitle
     }, 1000);
 
     // Navigation Blocker
@@ -132,7 +135,7 @@ const Notifications: React.FC = () => {
         if (showForm && isLoaded.current) {
             setIsDirty(true);
         }
-    }, [tipoId, textoPadrao, selectedPessoa, locInfracao, prazoDias, multaValor, observacoes, selectedInfracoes, fotos, photosPerPage, authorId, coAuthorId]);
+    }, [tipoId, textoPadrao, selectedPessoa, locInfracao, prazoDias, multaValor, observacoes, selectedInfracoes, fotos, photosPerPage, authorId, coAuthorId, sourceFieldSurveyId, sourceFieldSurveyTitle]);
 
     // Reset isLoaded when opening form
     useEffect(() => {
@@ -192,7 +195,12 @@ const Notifications: React.FC = () => {
     const handleSelectTipo = (id: string) => {
         setTipoId(id);
         const tipo = availableTypes.find(t => t.id === id);
-        if (tipo) setTextoPadrao(tipo.texto_padrao);
+        if (tipo) {
+            setTextoPadrao(sourceFieldSurveyId && observacoes
+                ? `${tipo.texto_padrao}\n\n${observacoes}`
+                : tipo.texto_padrao
+            );
+        }
     };
 
     const handleAddPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -270,6 +278,8 @@ const Notifications: React.FC = () => {
                 if (p.photosPerPage) setPhotosPerPage(p.photosPerPage);
                 if (p.authorId) setAuthorId(p.authorId);
                 if (p.coAuthorId) setCoAuthorId(p.coAuthorId);
+                if (p.sourceFieldSurveyId) setSourceFieldSurveyId(p.sourceFieldSurveyId);
+                if (p.sourceFieldSurveyTitle) setSourceFieldSurveyTitle(p.sourceFieldSurveyTitle);
 
                 return true;
             } catch (e) { console.error(e); }
@@ -313,7 +323,11 @@ const Notifications: React.FC = () => {
                 const nextNumber = lastOne && lastOne.length > 0 ? (lastOne[0].numero_sequencial_ano || 0) + 1 : 1;
                 payload.numero_sequencial_ano = nextNumber;
                 payload.label_formatada = `${String(nextNumber).padStart(3, '0')}/${currentYear}`;
-                await supabase.from('notificacoes').insert([payload]);
+                const { data: inserted, error: insertError } = await supabase.from('notificacoes').insert([payload]).select('id').single();
+                if (insertError) throw insertError;
+                if (sourceFieldSurveyId && inserted?.id) {
+                    await markFieldSurveyNotification(sourceFieldSurveyId, inserted.id);
+                }
                 localStorage.removeItem(`draft_notif_new`);
             }
             setShowForm(false);
@@ -326,6 +340,7 @@ const Notifications: React.FC = () => {
         setEditingId(null); setSelectedPessoa(null); setTipoId(null); setTextoPadrao('');
         setLocInfracao(''); setPrazoDias(15); setMultaValor(0); setObservacoes('');
         setSelectedInfracoes([]); setFotos([]); setPhotosPerPage(4); setCoAuthorId(null);
+        setSourceFieldSurveyId(null); setSourceFieldSurveyTitle('');
         if (currentUser) setAuthorId(currentUser.id);
         setIsDirty(false);
         isLoaded.current = false;
@@ -463,6 +478,11 @@ const Notifications: React.FC = () => {
                     <div className="lg:col-span-2 space-y-6">
                         <section className="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
                             <h3 className="text-sm font-black uppercase text-gray-400 flex items-center gap-2"><span className="material-symbols-outlined text-primary">description</span>Tipo e Conteúdo</h3>
+                            {sourceFieldSurveyId && (
+                                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-800">
+                                    Rascunho criado a partir do levantamento: {sourceFieldSurveyTitle || sourceFieldSurveyId}
+                                </div>
+                            )}
                             <select className="w-full bg-gray-50 border p-3 rounded-xl font-bold" value={tipoId || ''} onChange={e => handleSelectTipo(e.target.value)}>
                                 <option value="">Selecione o tipo de ação...</option>
                                 {availableTypes.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
@@ -527,6 +547,12 @@ const Notifications: React.FC = () => {
                         <section className="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
                             <h3 className="text-sm font-black uppercase text-gray-400 flex items-center gap-2"><span className="material-symbols-outlined text-primary">location_on</span>Local e Prazo</h3>
                             <input className="w-full bg-gray-50 border p-3 rounded-xl font-bold" placeholder="Local do fato..." value={locInfracao} onChange={e => setLocInfracao(e.target.value)} />
+                            <textarea
+                                className="w-full bg-gray-50 border p-3 rounded-xl h-32 text-sm leading-relaxed"
+                                value={observacoes}
+                                onChange={e => setObservacoes(e.target.value)}
+                                placeholder="Observações e conteúdo trazido do levantamento..."
+                            />
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="text-[10px] font-black uppercase text-gray-400">Prazo (Dias)</label><input type="number" className="w-full bg-gray-50 border p-3 rounded-xl font-bold text-center" value={prazoDias} onChange={e => setPrazoDias(Number(e.target.value))} /></div>
                                 <div><label className="text-[10px] font-black uppercase text-gray-400">Multa (R$)</label><input type="number" className="w-full bg-gray-50 border p-3 rounded-xl font-bold text-center" value={multaValor} onChange={e => setMultaValor(Number(e.target.value))} /></div>

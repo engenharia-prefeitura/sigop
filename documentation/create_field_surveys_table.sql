@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS public.field_surveys (
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     generated_document_id UUID REFERENCES public.documents(id) ON DELETE SET NULL,
     generated_notification_id UUID REFERENCES public.notificacoes(id) ON DELETE SET NULL,
+    archived_at TIMESTAMPTZ,
     synced_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -25,6 +26,10 @@ CREATE TABLE IF NOT EXISTS public.field_surveys (
 CREATE INDEX IF NOT EXISTS idx_field_surveys_user_created ON public.field_surveys(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_field_surveys_project ON public.field_surveys(project_id);
 CREATE INDEX IF NOT EXISTS idx_field_surveys_status ON public.field_surveys(status);
+
+ALTER TABLE public.field_surveys ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE public.field_surveys ADD COLUMN IF NOT EXISTS generated_document_id UUID REFERENCES public.documents(id) ON DELETE SET NULL;
+ALTER TABLE public.field_surveys ADD COLUMN IF NOT EXISTS generated_notification_id UUID REFERENCES public.notificacoes(id) ON DELETE SET NULL;
 
 ALTER TABLE public.field_surveys ENABLE ROW LEVEL SECURITY;
 

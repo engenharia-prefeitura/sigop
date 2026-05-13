@@ -4,6 +4,7 @@ import { useAuth } from '../components/AuthContext';
 import { compressImage } from '../utils/imageCompressor';
 import {
   CachedDocumentType,
+  archiveRemoteFieldSurvey,
   CachedProject,
   createDocumentFromFieldSurvey,
   createLocalId,
@@ -357,21 +358,47 @@ const FieldSurveys: React.FC = () => {
 
   const handlePrepareNotification = (remote: RemoteFieldSurveyDocument) => {
     const survey = remote.payload;
+    const content = [
+      `LEVANTAMENTO DE ORIGEM: ${survey.title}`,
+      survey.eventDate ? `DATA DO LEVANTAMENTO: ${new Date(`${survey.eventDate}T00:00:00`).toLocaleDateString('pt-BR')}` : '',
+      survey.projectName ? `OBRA VINCULADA: ${survey.projectName}` : '',
+      survey.location ? `LOCAL INFORMADO: ${survey.location}` : '',
+      survey.initialInfo ? `INFORMACOES INICIAIS:\n${survey.initialInfo}` : '',
+      survey.notes ? `REGISTRO DE CAMPO:\n${survey.notes}` : '',
+      survey.recommendations ? `ENCAMINHAMENTOS:\n${survey.recommendations}` : '',
+      survey.photos?.length ? `EVIDENCIAS FOTOGRAFICAS: ${survey.photos.length} foto(s) anexada(s).` : '',
+    ].filter(Boolean).join('\n\n');
+
     const draft = {
       locInfracao: survey.location || survey.projectName || '',
-      observacoes: [
-        `Levantamento de origem: ${survey.title}`,
-        survey.initialInfo,
-        survey.notes,
-        survey.recommendations,
-      ].filter(Boolean).join('\n\n'),
+      observacoes: content,
+      textoPadrao: content,
       fotos: survey.photos?.map(photo => photo.url) || [],
       photosPerPage: 4,
       authorId: user?.id,
+      sourceFieldSurveyId: remote.id,
+      sourceFieldSurveyTitle: survey.title,
     };
 
     localStorage.setItem('draft_notif_new', JSON.stringify(draft));
     navigate('/notifications', { state: { openDraftNotification: true } });
+  };
+
+  const archiveRemoteSurvey = async (remote: RemoteFieldSurveyDocument) => {
+    const used = !!remote.generatedDocumentId || !!remote.generatedNotificationId;
+    const text = used
+      ? 'Este levantamento ja foi usado. Ele sera arquivado, sem apagar documentos ou notificacoes gerados. Continuar?'
+      : 'Arquivar este levantamento no sistema?';
+
+    if (!confirm(text)) return;
+
+    try {
+      await archiveRemoteFieldSurvey(remote.id);
+      await loadLocalData();
+      setMessage('Levantamento arquivado no sistema.');
+    } catch (error: any) {
+      setMessage(error.message || 'Nao foi possivel arquivar o levantamento.');
+    }
   };
 
   const startNewSurvey = () => {
@@ -773,13 +800,13 @@ const FieldSurveys: React.FC = () => {
                 </button>
               </div>
 
-              {remoteSurveys.length === 0 ? (
+              {remoteSurveys.filter(remote => !remote.archivedAt).length === 0 ? (
                 <div className="flex min-h-20 items-center justify-center rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs font-semibold text-slate-400">
                   Nenhum levantamento sincronizado encontrado no sistema.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
-                  {remoteSurveys.map(remote => (
+                  {remoteSurveys.filter(remote => !remote.archivedAt).map(remote => (
                     <article key={remote.id} className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
@@ -804,10 +831,18 @@ const FieldSurveys: React.FC = () => {
                         </button>
                         <button
                           onClick={() => handlePrepareNotification(remote)}
+                          disabled={!!remote.generatedNotificationId}
                           className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-amber-200 bg-white px-2 text-[11px] font-bold text-amber-700 hover:bg-amber-50"
                         >
                           <span className="material-symbols-outlined text-[16px]">notifications_active</span>
-                          Usar em notificacao
+                          {remote.generatedNotificationId ? 'Notificacao criada' : 'Usar em notificacao'}
+                        </button>
+                        <button
+                          onClick={() => archiveRemoteSurvey(remote)}
+                          className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">archive</span>
+                          Arquivar
                         </button>
                       </div>
                     </article>

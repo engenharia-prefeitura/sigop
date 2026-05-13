@@ -62,6 +62,7 @@ export interface RemoteFieldSurveyDocument {
   payload: FieldSurvey;
   generatedDocumentId?: string;
   generatedNotificationId?: string;
+  archivedAt?: string;
 }
 
 const DB_NAME = 'sigop_offline_field';
@@ -180,7 +181,7 @@ export const getRemoteFieldSurveyDocuments = async (userId?: string): Promise<Re
 
   const { data, error } = await supabase
     .from('field_surveys')
-    .select('id, title, status, event_date, created_at, synced_at, local_id, user_email, payload, generated_document_id, generated_notification_id')
+    .select('id, title, status, event_date, created_at, synced_at, local_id, user_email, payload, generated_document_id, generated_notification_id, archived_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(100);
@@ -200,6 +201,7 @@ export const getRemoteFieldSurveyDocuments = async (userId?: string): Promise<Re
       payload: item.payload,
       generatedDocumentId: item.generated_document_id,
       generatedNotificationId: item.generated_notification_id,
+      archivedAt: item.archived_at,
     }));
 };
 
@@ -323,6 +325,24 @@ export const createDocumentFromFieldSurvey = async (remote: RemoteFieldSurveyDoc
   }
 
   return documentId;
+};
+
+export const markFieldSurveyNotification = async (remoteId: string, notificationId: string) => {
+  const { error } = await supabase
+    .from('field_surveys')
+    .update({ generated_notification_id: notificationId, updated_at: new Date().toISOString() })
+    .eq('id', remoteId);
+
+  if (error) throw error;
+};
+
+export const archiveRemoteFieldSurvey = async (remoteId: string) => {
+  const { error } = await supabase
+    .from('field_surveys')
+    .update({ archived_at: new Date().toISOString(), status: 'archived', updated_at: new Date().toISOString() })
+    .eq('id', remoteId);
+
+  if (error) throw error;
 };
 
 export const syncFieldSurvey = async (survey: FieldSurvey): Promise<FieldSurvey> => {
