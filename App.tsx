@@ -39,10 +39,10 @@ const AuthGuard = () => {
 
 // Guards login route (redirects if already logged in)
 const PublicGuard = () => {
-  const { session, user, loading } = useAuth();
+  const { session, user, loading, isOfflineSession } = useAuth();
 
   if (loading) return <LoadingSpinner />;
-  if (session || user) return <Navigate to="/" replace />;
+  if (session || user) return <Navigate to={isOfflineSession ? "/field-surveys" : "/"} replace />;
 
   return <Outlet />;
 };

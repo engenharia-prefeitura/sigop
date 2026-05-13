@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../components/AuthContext';
 
 const Login: React.FC = () => {
+  const navigate = useNavigate();
+  const { enterOfflineMode } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -75,6 +79,18 @@ const Login: React.FC = () => {
       setError('Erro interno inesperado.');
       setIsLoading(false);
     }
+  };
+
+  const handleOfflineAccess = async () => {
+    setError(null);
+    const entered = await enterOfflineMode();
+
+    if (!entered) {
+      setError('Nenhum usuario preparado para modo offline neste aparelho. Entre uma vez com internet antes de usar o levantamento offline.');
+      return;
+    }
+
+    navigate('/field-surveys');
   };
 
   const logoUrl = settings?.company_logo_url;
@@ -171,6 +187,16 @@ const Login: React.FC = () => {
                     <span className="material-symbols-outlined ml-2 text-[22px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
                   </>
                 )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOfflineAccess}
+                disabled={isLoading}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-6 h-12 text-sm font-extrabold text-gray-700 shadow-sm transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+              >
+                <span className="material-symbols-outlined text-[20px]">offline_bolt</span>
+                Levantamento offline
               </button>
             </form>
           </div>

@@ -7,6 +7,7 @@ interface AuthContextType {
     user: User | null;
     loading: boolean;
     isOfflineSession: boolean;
+    enterOfflineMode: () => Promise<boolean>;
     signOut: () => Promise<void>;
 }
 
@@ -17,6 +18,7 @@ const AuthContext = createContext<AuthContextType>({
     user: null,
     loading: true,
     isOfflineSession: false,
+    enterOfflineMode: async () => false,
     signOut: async () => { }
 });
 
@@ -210,8 +212,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
     }, []);
 
+    const enterOfflineMode = async () => {
+        const offlineUser = readOfflineUser();
+        if (!offlineUser) return false;
+
+        setSession(null);
+        setUser(offlineUser);
+        setIsOfflineSession(true);
+        return true;
+    };
+
     const signOut = async () => {
-        localStorage.removeItem(OFFLINE_USER_KEY);
         setIsOfflineSession(false);
         setSession(null);
         setUser(null);
@@ -219,7 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     return (
-        <AuthContext.Provider value={{ session, user, loading, isOfflineSession, signOut }}>
+        <AuthContext.Provider value={{ session, user, loading, isOfflineSession, enterOfflineMode, signOut }}>
             {children}
         </AuthContext.Provider>
     );

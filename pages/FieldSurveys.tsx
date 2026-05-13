@@ -100,10 +100,12 @@ const FieldSurveys: React.FC = () => {
   const [cacheUpdatedAt, setCacheUpdatedAt] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [photoUploadStatus, setPhotoUploadStatus] = useState('');
   const [message, setMessage] = useState('');
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [libraryTab, setLibraryTab] = useState<'local' | 'system' | 'archived'>('local');
   const [remoteSurveys, setRemoteSurveys] = useState<RemoteFieldSurveyDocument[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<FieldSurveyPhoto | null>(null);
 
   const pendingCount = useMemo(
     () => surveys.filter(item => item.status === 'pending' || item.status === 'error').length,
@@ -188,11 +190,14 @@ const FieldSurveys: React.FC = () => {
     if (!files?.length) return;
 
     setIsSaving(true);
+    setPhotoUploadStatus(`Preparando ${files.length} foto(s)...`);
     try {
       const photos: FieldSurveyPhoto[] = [];
+      setPhotoUploadStatus('Obtendo geolocalizacao...');
       const locationStamp = await getPhotoLocationStamp();
 
       for (let index = 0; index < files.length; index++) {
+        setPhotoUploadStatus(`Processando foto ${index + 1} de ${files.length}...`);
         const blob = await compressImage(files[index], { locationStamp });
         const url = await blobToDataUrl(blob);
         photos.push({
@@ -217,6 +222,7 @@ const FieldSurveys: React.FC = () => {
       setMessage('Nao foi possivel processar uma das fotos.');
     } finally {
       setIsSaving(false);
+      setPhotoUploadStatus('');
     }
   };
 
@@ -745,7 +751,7 @@ const FieldSurveys: React.FC = () => {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <span className="text-xs font-black uppercase text-slate-500">Fotos</span>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+                    <label className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 ${isSaving ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                       <span className="material-symbols-outlined text-[18px]">add_a_photo</span>
                       Tirar foto
                       <input
@@ -753,17 +759,19 @@ const FieldSurveys: React.FC = () => {
                         accept="image/*"
                         capture="environment"
                         multiple
+                        disabled={isSaving}
                         className="hidden"
                         onChange={handlePhotoUpload}
                       />
                     </label>
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+                    <label className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 ${isSaving ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                       <span className="material-symbols-outlined text-[18px]">photo_library</span>
                       Anexar foto
                       <input
                         type="file"
                         accept="image/*"
                         multiple
+                        disabled={isSaving}
                         className="hidden"
                         onChange={handlePhotoUpload}
                       />
@@ -771,12 +779,26 @@ const FieldSurveys: React.FC = () => {
                   </div>
                 </div>
 
+                {photoUploadStatus && (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
+                    <span className="size-4 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin"></span>
+                    {photoUploadStatus}
+                  </div>
+                )}
+
                 {form.photos.length > 0 ? (
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                     {form.photos.map(photo => (
                       <div key={photo.id} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                         <div className="relative aspect-video bg-slate-200">
-                          <img src={photo.url} alt={photo.caption} className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPhoto(photo)}
+                            className="h-full w-full bg-slate-100"
+                            title="Ver foto inteira"
+                          >
+                            <img src={photo.url} alt={photo.caption} className="h-full w-full object-contain" />
+                          </button>
                           <button
                             onClick={() => removePhoto(photo.id)}
                             title="Remover foto"
@@ -820,6 +842,30 @@ const FieldSurveys: React.FC = () => {
               </button>
             </div>
           </section>
+
+          {selectedPhoto && (
+            <aside className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm">
+              <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-slate-900">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-black text-slate-950 dark:text-white">{selectedPhoto.caption}</h3>
+                    <p className="text-[11px] font-semibold uppercase text-slate-400">Foto do levantamento</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPhoto(null)}
+                    className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
+                    title="Fechar foto"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">close</span>
+                  </button>
+                </div>
+                <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950 p-2">
+                  <img src={selectedPhoto.url} alt={selectedPhoto.caption} className="max-h-[78vh] w-full object-contain" />
+                </div>
+              </div>
+            </aside>
+          )}
 
           {isLibraryOpen && (
           <aside className="fixed inset-0 z-50 flex items-end bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4">
