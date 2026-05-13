@@ -84,8 +84,8 @@ const NetworkStatus: React.FC = () => {
 
     const getStatusText = () => {
         switch (status) {
-            case 'online': return `Internet Boa (${latency}ms)`;
-            case 'slow': return `Internet Lenta (${latency}ms)`;
+            case 'online': return `Online (${latency}ms)`;
+            case 'slow': return `Lenta (${latency}ms)`;
             case 'offline': return 'Sem Internet';
         }
     };
@@ -100,16 +100,16 @@ const NetworkStatus: React.FC = () => {
 
     return (
         <div
-            className={`fixed bottom-4 right-4 z-[9999] flex items-center gap-2 px-3 py-1.5 rounded-full shadow-lg border text-xs font-semibold transition-all duration-300 ${getStatusColor()} ${status === 'offline' ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
+            className={`fixed right-2 top-2 z-[9999] flex max-w-[calc(100vw-1rem)] items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-semibold shadow-lg transition-all duration-300 sm:bottom-4 sm:right-4 sm:top-auto sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs ${getStatusColor()} ${status === 'offline' ? 'opacity-100' : 'opacity-80 hover:opacity-100'}`}
             title="Status da Conexão com a Internet"
         >
-            <span className="relative flex h-2.5 w-2.5">
+            <span className="relative flex h-2 w-2 flex-none sm:h-2.5 sm:w-2.5">
                 {status === 'online' && (
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${getIndicatorColor()} opacity-75`}></span>
                 )}
-                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${getIndicatorColor()}`}></span>
+                <span className={`relative inline-flex h-2 w-2 rounded-full sm:h-2.5 sm:w-2.5 ${getIndicatorColor()}`}></span>
             </span>
-            <span>{getStatusText()}</span>
+            <span className="whitespace-nowrap">{getStatusText()}</span>
         </div>
     );
 };

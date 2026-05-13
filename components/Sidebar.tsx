@@ -11,7 +11,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
-  const [collapsed, setCollapsed] = React.useState(false);
+  const [collapsed, setCollapsed] = React.useState(true);
   const [isAdmin, setIsAdmin] = React.useState(false);
   const { user } = useAuth(); // Global User
 
@@ -65,7 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
 
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className={`absolute ${collapsed ? 'bottom-2 -right-3 size-6 bg-slate-800 border border-slate-600 rounded-full shadow-md z-40' : 'right-4 opacity-0 group-hover:opacity-100'} flex items-center justify-center text-slate-400 hover:text-white transition-all`}
+          className={`absolute ${collapsed ? 'bottom-2 -right-3 size-6' : 'right-3 size-8'} bg-slate-800 border border-slate-600 rounded-full shadow-md z-40 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700 transition-all`}
           title={collapsed ? "Expandir" : "Recolher"}
         >
           <span className="material-symbols-outlined text-sm">

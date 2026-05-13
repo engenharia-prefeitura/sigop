@@ -11,7 +11,9 @@ import {
   FieldSurveyPhoto,
   getFieldSurveys,
   getOfflineCache,
+  getRemoteFieldSurveyDocuments,
   refreshOfflineCache,
+  RemoteFieldSurveyDocument,
   saveFieldSurvey,
   syncFieldSurvey,
   syncPendingFieldSurveys,
@@ -77,6 +79,7 @@ const FieldSurveys: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState('');
   const [isListOpen, setIsListOpen] = useState(false);
+  const [remoteSurveys, setRemoteSurveys] = useState<RemoteFieldSurveyDocument[]>([]);
 
   const pendingCount = useMemo(
     () => surveys.filter(item => item.status === 'pending' || item.status === 'error').length,
@@ -103,7 +106,12 @@ const FieldSurveys: React.FC = () => {
       setCacheUpdatedAt(cache.updatedAt);
 
       if (user?.id) {
-        setSurveys(await getFieldSurveys(user.id));
+        const [localItems, remoteItems] = await Promise.all([
+          getFieldSurveys(user.id),
+          getRemoteFieldSurveyDocuments(user.id),
+        ]);
+        setSurveys(localItems);
+        setRemoteSurveys(remoteItems);
       }
     } catch (error: any) {
       setMessage(error.message || 'Nao foi possivel abrir o banco local.');
@@ -252,9 +260,13 @@ const FieldSurveys: React.FC = () => {
     setIsSaving(true);
     try {
       await saveFieldSurvey(survey);
-      setForm(emptyForm());
+      if (status === 'pending') {
+        setForm(emptyForm());
+      } else {
+        setForm(current => ({ ...current, id: survey.id }));
+      }
       await loadLocalData();
-      setMessage(status === 'pending' ? 'Levantamento finalizado localmente e colocado na fila.' : 'Rascunho salvo neste aparelho.');
+      setMessage(status === 'pending' ? 'Levantamento finalizado localmente e colocado na fila.' : 'Rascunho salvo neste aparelho sem limpar o formulario.');
     } catch (error: any) {
       setMessage(error.message || 'Erro ao salvar levantamento local.');
     } finally {
@@ -324,6 +336,24 @@ const FieldSurveys: React.FC = () => {
     if (survey.remoteId) navigate(`/editor/${survey.remoteId}`);
   };
 
+  const startNewSurvey = () => {
+    const hasContent = !!(
+      form.id ||
+      form.title ||
+      form.documentTypeId ||
+      form.projectId ||
+      form.location ||
+      form.initialInfo ||
+      form.notes ||
+      form.recommendations ||
+      form.photos.length
+    );
+
+    if (hasContent && !confirm('Iniciar um novo levantamento e limpar o formulario atual?')) return;
+    setForm(emptyForm());
+    setMessage('Formulario limpo para um novo levantamento.');
+  };
+
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark p-3 lg:p-5">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4">
@@ -378,6 +408,11 @@ const FieldSurveys: React.FC = () => {
             <span className="material-symbols-outlined text-[17px]">cloud_done</span>
             {syncedCount} enviado(s)
           </span>
+          <span className="h-4 w-px bg-slate-200"></span>
+          <span className="inline-flex items-center gap-1 text-blue-700">
+            <span className="material-symbols-outlined text-[17px]">description</span>
+            {remoteSurveys.length} no sistema
+          </span>
           <button
             onClick={() => setIsListOpen(current => !current)}
             className="ml-auto inline-flex h-8 items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs font-black text-slate-700 hover:bg-slate-100"
@@ -404,14 +439,19 @@ const FieldSurveys: React.FC = () => {
                     {cacheUpdatedAt ? `Dados preparados em ${new Date(cacheUpdatedAt).toLocaleString('pt-BR')}` : 'Prepare os dados antes de sair para campo'}
                   </p>
                 </div>
+                <div className="flex items-center gap-2">
                 {form.id && (
+                  <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black uppercase text-emerald-700">
+                    Rascunho salvo
+                  </span>
+                )}
                   <button
-                    onClick={() => setForm(emptyForm())}
+                    onClick={startNewSurvey}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
                   >
-                    Limpar
+                    Iniciar novo
                   </button>
-                )}
+                </div>
               </div>
             </div>
 
@@ -676,6 +716,54 @@ const FieldSurveys: React.FC = () => {
                       </article>
                     );
                   })}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 p-2 dark:border-slate-800">
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <div>
+                  <h4 className="text-xs font-black uppercase text-slate-700 dark:text-slate-200">Enviados no sistema</h4>
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">Aparecem em qualquer aparelho do mesmo usuario</p>
+                </div>
+                <button
+                  onClick={loadLocalData}
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">refresh</span>
+                  Atualizar
+                </button>
+              </div>
+
+              {remoteSurveys.length === 0 ? (
+                <div className="flex min-h-20 items-center justify-center rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs font-semibold text-slate-400">
+                  Nenhum levantamento sincronizado encontrado no sistema.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
+                  {remoteSurveys.map(remote => (
+                    <article key={remote.id} className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 shadow-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h4 className="truncate text-xs font-black text-slate-900">{remote.title}</h4>
+                          <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                            {remote.eventDate ? new Date(`${remote.eventDate}T00:00:00`).toLocaleDateString('pt-BR') : new Date(remote.createdAt).toLocaleDateString('pt-BR')}
+                          </p>
+                        </div>
+                        <span className="inline-flex flex-none items-center gap-1 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-[9px] font-black uppercase text-blue-700">
+                          <span className="material-symbols-outlined text-[13px]">description</span>
+                          Documento
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => navigate(`/editor/${remote.id}`)}
+                        className="mt-3 inline-flex h-8 items-center justify-center gap-1 rounded-md bg-blue-600 px-2 text-[11px] font-bold text-white hover:bg-blue-700"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                        Abrir no sistema
+                      </button>
+                    </article>
+                  ))}
                 </div>
               )}
             </div>

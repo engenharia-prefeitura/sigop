@@ -50,6 +50,18 @@ export interface OfflineFieldCache {
   updatedAt: string;
 }
 
+export interface RemoteFieldSurveyDocument {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  eventDate?: string;
+  createdAt: string;
+  syncedAt?: string;
+  localId?: string;
+  capturedBy?: string;
+}
+
 const DB_NAME = 'sigop_offline_field';
 const DB_VERSION = 1;
 const SURVEYS_STORE = 'field_surveys';
@@ -159,6 +171,33 @@ export const saveFieldSurvey = async (survey: FieldSurvey): Promise<void> => {
 
 export const deleteFieldSurvey = async (id: string): Promise<void> => {
   await runStore(SURVEYS_STORE, 'readwrite', store => store.delete(id));
+};
+
+export const getRemoteFieldSurveyDocuments = async (userId?: string): Promise<RemoteFieldSurveyDocument[]> => {
+  if (!userId || !navigator.onLine) return [];
+
+  const { data, error } = await supabase
+    .from('documents')
+    .select('id, title, type, status, event_date, created_at, content')
+    .eq('created_by', userId)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (error) throw error;
+
+  return (data || [])
+    .filter((doc: any) => !!doc.content?.offline_source)
+    .map((doc: any) => ({
+      id: doc.id,
+      title: doc.title,
+      type: doc.type || 'Levantamento de Campo',
+      status: doc.status,
+      eventDate: doc.event_date,
+      createdAt: doc.created_at,
+      syncedAt: doc.content?.offline_source?.synced_at,
+      localId: doc.content?.offline_source?.local_id,
+      capturedBy: doc.content?.offline_source?.captured_by,
+    }));
 };
 
 export const markSurveyStatus = async (
