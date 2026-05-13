@@ -19,6 +19,25 @@ export const PrintLayout = forwardRef<HTMLDivElement, PrintLayoutProps>(({ docum
     // Separação de seções
     const textSections = sections.filter((s: any) => s.type !== 'photos');
     const photoSections = sections.filter((s: any) => s.type === 'photos');
+    const requestedPhotosPerPage = Number(document.photos_per_page || 4);
+    const photosPerPage = [1, 2, 4, 6].includes(requestedPhotosPerPage) ? requestedPhotosPerPage : 4;
+    const photoItems = photoSections.flatMap((section: any) => (
+        section.items || []
+    ));
+    const photoPages = photoItems.reduce((pages: any[][], photo: any, index: number) => {
+        const pageIndex = Math.floor(index / photosPerPage);
+        if (!pages[pageIndex]) pages[pageIndex] = [];
+        pages[pageIndex].push(photo);
+        return pages;
+    }, []);
+
+    const getPhotoGridStyle = (count: number) => {
+        const effectiveCount = Math.max(count, 1);
+        if (photosPerPage === 1) return { gridTemplateColumns: '1fr', gridTemplateRows: '1fr' };
+        if (photosPerPage === 2) return { gridTemplateColumns: '1fr', gridTemplateRows: `repeat(${Math.max(effectiveCount, 2)}, minmax(0, 1fr))` };
+        if (photosPerPage === 6) return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: `repeat(${Math.ceil(Math.max(effectiveCount, 6) / 2)}, minmax(0, 1fr))` };
+        return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: `repeat(${Math.ceil(Math.max(effectiveCount, 4) / 2)}, minmax(0, 1fr))` };
+    };
 
     // Data formatada com fallback
     const formatDate = (dateStr: string) => {
@@ -166,6 +185,65 @@ export const PrintLayout = forwardRef<HTMLDivElement, PrintLayoutProps>(({ docum
                     break-inside: avoid;
                 }
 
+                .technical-photo-page {
+                    page-break-before: always;
+                    break-before: page;
+                }
+
+                .technical-photo-heading {
+                    font-weight: 900;
+                    text-transform: uppercase;
+                    border-bottom: 2px solid #000;
+                    padding-bottom: 2mm;
+                    margin: 0 0 4mm 0;
+                    font-size: 14pt;
+                }
+
+                .technical-photo-grid {
+                    display: grid;
+                    gap: 3mm;
+                    height: 164mm;
+                    min-height: 0;
+                }
+
+                .technical-photo-item {
+                    border: 1px solid #d1d5db;
+                    padding: 1.5mm;
+                    background: #fff;
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 0;
+                    page-break-inside: avoid;
+                    break-inside: avoid;
+                }
+
+                .technical-photo-frame {
+                    flex: 1;
+                    min-height: 0;
+                    background: #f9fafb;
+                    overflow: hidden;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+
+                .technical-photo-img {
+                    width: 100%;
+                    height: 100%;
+                    object-fit: contain;
+                }
+
+                .technical-photo-caption {
+                    font-size: 9pt;
+                    text-align: center;
+                    font-weight: bold;
+                    text-transform: uppercase;
+                    color: #374151;
+                    padding-top: 1mm;
+                    margin-top: 1mm;
+                    border-top: 1px solid #e5e7eb;
+                }
+
                 /* Ocultar elementos na tela que so devem sair no print */
                 @media screen {
                     .signature-container { position: relative; margin-top: 50px; border: 1px dashed #ccc; }
@@ -254,26 +332,25 @@ export const PrintLayout = forwardRef<HTMLDivElement, PrintLayoutProps>(({ docum
                                 ))}
 
                                 {/* ANEXO FOTOGRÁFICO */}
-                                {photoSections.length > 0 && (
+                                {photoPages.length > 0 && (
                                     <div className="photo-gallery">
-                                        <div style={{ pageBreakBefore: 'always' }}></div>
-                                        <h2 className="text-lg font-black uppercase border-b-2 border-black pb-2 mb-6 mt-4">Anexo Fotográfico</h2>
-                                        {photoSections.map((section: any) => (
-                                            <div key={section.id} className="mb-8">
-                                                {section.title !== 'Relatório Fotográfico' && (
-                                                    <h3 className="section-title">{section.title}</h3>
-                                                )}
-                                                <div className={`grid ${document.photos_per_page <= 2 ? 'grid-cols-1' : 'grid-cols-2'} gap-6`}>
-                                                    {section.items.map((photo: any) => (
-                                                        <div key={photo.id} className="avoid-break border border-gray-300 p-2 bg-white">
-                                                            <div className="aspect-video mb-2 bg-gray-50 overflow-hidden">
-                                                                <img src={photo.url} className="w-full h-full object-contain" />
+                                        {photoPages.map((page, pageIndex) => (
+                                            <div key={pageIndex} className="technical-photo-page">
+                                                <h2 className="technical-photo-heading">Anexo Fotográfico</h2>
+                                                <div className="technical-photo-grid" style={getPhotoGridStyle(page.length)}>
+                                                    {page.map((photo: any, photoIndex: number) => {
+                                                        const photoNumber = pageIndex * photosPerPage + photoIndex + 1;
+                                                        return (
+                                                            <div key={photo.id || photoNumber} className="technical-photo-item">
+                                                                <div className="technical-photo-frame">
+                                                                    <img src={photo.url} className="technical-photo-img" />
+                                                                </div>
+                                                                <p className="technical-photo-caption">
+                                                                    {photo.caption || `Registro fotográfico #${photoNumber}`}
+                                                                </p>
                                                             </div>
-                                                            <p className="text-[9pt] text-center font-bold uppercase text-gray-700 py-1 border-t bg-gray-50">
-                                                                {photo.caption || 'Sem legenda'}
-                                                            </p>
-                                                        </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
                                         ))}
