@@ -30,6 +30,12 @@ const Documents: React.FC = () => {
   const [signDocId, setSignDocId] = useState<string | null>(null);
   const [signPassword, setSignPassword] = useState('');
 
+  // Type change modal
+  const [documentTypes, setDocumentTypes] = useState<any[]>([]);
+  const [typeModalOpen, setTypeModalOpen] = useState(false);
+  const [typeModalDoc, setTypeModalDoc] = useState<any | null>(null);
+  const [selectedDocType, setSelectedDocType] = useState('');
+
   // General Report State
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportFilterType, setReportFilterType] = useState<'all' | 'user'>('user');
@@ -181,6 +187,10 @@ const Documents: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    fetchDocumentTypes();
+  }, []);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       fetchDocuments();
     }, 500);
@@ -221,6 +231,7 @@ const Documents: React.FC = () => {
           updated_at, 
           formatted_number, 
           document_number, 
+          document_type_id,
           event_date,
           type
         `);
@@ -324,6 +335,59 @@ const Documents: React.FC = () => {
       fetchDocuments();
     } catch (err) {
       alert('Erro ao remover assinatura');
+    }
+  };
+
+  const fetchDocumentTypes = async () => {
+    const { data, error } = await supabase.from('document_types').select('id, name').order('name');
+    if (error) {
+      console.error('Erro ao buscar tipos de documento:', error);
+      return;
+    }
+    setDocumentTypes(data || []);
+  };
+
+  const openTypeModal = (doc: any) => {
+    if (doc.status !== 'draft') {
+      alert('Para alterar o tipo, volte o documento para rascunho primeiro.');
+      return;
+    }
+
+    const matchingType = documentTypes.find((type) => type.name === doc.type);
+    setTypeModalDoc(doc);
+    setSelectedDocType(doc.document_type_id || matchingType?.id || '');
+    setTypeModalOpen(true);
+    setOpenMenuId(null);
+  };
+
+  const handleUpdateDocumentType = async () => {
+    if (!typeModalDoc) return;
+
+    const typeName = documentTypes.find((type) => type.id === selectedDocType)?.name || 'Geral';
+    const updatedAt = new Date().toISOString();
+
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({
+          document_type_id: selectedDocType || null,
+          type: typeName,
+          updated_at: updatedAt
+        })
+        .eq('id', typeModalDoc.id);
+
+      if (error) throw error;
+
+      setDocs((currentDocs) => currentDocs.map((doc) => (
+        doc.id === typeModalDoc.id
+          ? { ...doc, document_type_id: selectedDocType || null, type: typeName, updated_at: updatedAt }
+          : doc
+      )));
+      setTypeModalOpen(false);
+      setTypeModalDoc(null);
+      setSelectedDocType('');
+    } catch (err: any) {
+      alert('Erro ao alterar tipo do documento: ' + (err.message || 'tente novamente.'));
     }
   };
 
@@ -745,6 +809,15 @@ const Documents: React.FC = () => {
                                 </button>
                               )}
 
+                              {doc.status === 'draft' && (
+                                <button
+                                  onClick={() => openTypeModal(doc)}
+                                  className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 text-left"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">category</span> Alterar Tipo
+                                </button>
+                              )}
+
                               {doc.status !== 'draft' && (
                                 <button
                                   onClick={() => navigate(`/editor/${doc.id}`)}
@@ -823,6 +896,43 @@ const Documents: React.FC = () => {
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setSignModalOpen(false)} className="flex-1 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Cancelar</button>
                 <button onClick={handleSignDocument} className="flex-1 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 shadow-lg shadow-green-500/20 transition-colors">Confirmar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {typeModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl scale-100 animate-in zoom-in-95 duration-200">
+            <div className="flex gap-4 items-start mb-6">
+              <div className="p-3 bg-blue-100 text-blue-700 rounded-xl">
+                <span className="material-symbols-outlined text-3xl">category</span>
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-gray-900">Alterar Tipo</h3>
+                <p className="text-sm text-gray-500 font-medium leading-tight mt-1">{typeModalDoc?.title}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold uppercase text-gray-400">Tipo de documento</label>
+                <select
+                  className="w-full border-2 border-gray-100 p-3 rounded-xl mt-1 focus:border-primary outline-none font-bold bg-white"
+                  value={selectedDocType}
+                  onChange={e => setSelectedDocType(e.target.value)}
+                >
+                  <option value="">Geral</option>
+                  {documentTypes.map(type => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setTypeModalOpen(false)} className="flex-1 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Cancelar</button>
+                <button onClick={handleUpdateDocumentType} className="flex-1 py-3 bg-primary text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-colors">Salvar</button>
               </div>
             </div>
           </div>

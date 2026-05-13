@@ -235,8 +235,9 @@ const Editor: React.FC = () => {
         }
 
         if (!loadedFromLocal) {
+          const matchingType = (types || []).find((type: any) => type.name === doc.type);
           setTitle(doc.title);
-          setDocType(doc.document_type_id || '');
+          setDocType(doc.document_type_id || matchingType?.id || '');
           setSections(doc.content?.sections || []);
           setStatus(doc.status);
           setDescription(doc.description || '');
@@ -611,7 +612,14 @@ const Editor: React.FC = () => {
         <div className="max-w-[210mm] mx-auto bg-white min-h-[297mm] shadow-lg border border-gray-200 p-[10mm] flex flex-col gap-8">
 
           {/* Metadados Visíveis */}
-          <div className="grid grid-cols-3 gap-6 bg-blue-50/50 p-6 rounded-xl border border-blue-100 mb-4 not-prose">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 bg-blue-50/50 p-6 rounded-xl border border-blue-100 mb-4 not-prose">
+            <div>
+              <span className="text-[10px] font-black uppercase text-blue-400 tracking-wider">Tipo do Documento</span>
+              <select disabled={status !== 'draft'} className="block w-full bg-transparent font-bold text-sm text-blue-900 border-b border-blue-200 focus:border-blue-500 outline-none mt-1 disabled:opacity-50" value={docType} onChange={e => setDocType(e.target.value)}>
+                <option value="">Geral</option>
+                {docTypesList.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
             <div>
               <span className="text-[10px] font-black uppercase text-blue-400 tracking-wider">Data do Evento</span>
               <input type="date" disabled={status !== 'draft'} value={eventDate} onChange={e => setEventDate(e.target.value)} className="block w-full bg-transparent font-bold text-sm text-blue-900 border-b border-blue-200 focus:border-blue-500 outline-none mt-1 disabled:opacity-50" />
