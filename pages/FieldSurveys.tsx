@@ -185,7 +185,7 @@ const FieldSurveys: React.FC = () => {
     }
   };
 
-  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>, applyGeoStamp = false) => {
     const files = event.target.files;
     if (!files?.length) return;
 
@@ -193,31 +193,36 @@ const FieldSurveys: React.FC = () => {
     setPhotoUploadStatus(`Preparando ${files.length} foto(s)...`);
     try {
       const photos: FieldSurveyPhoto[] = [];
-      setPhotoUploadStatus('Obtendo geolocalizacao...');
-      const locationStamp = await getPhotoLocationStamp();
+      if (applyGeoStamp) setPhotoUploadStatus('Obtendo geolocalizacao...');
+      const locationStamp = applyGeoStamp ? await getPhotoLocationStamp() : null;
 
       for (let index = 0; index < files.length; index++) {
         setPhotoUploadStatus(`Processando foto ${index + 1} de ${files.length}...`);
-        const blob = await compressImage(files[index], { locationStamp });
+        const createdAt = locationStamp?.capturedAt || new Date().toISOString();
+        const blob = await compressImage(files[index], locationStamp ? { locationStamp } : undefined);
         const url = await blobToDataUrl(blob);
         photos.push({
           id: createLocalId(),
           url,
           caption: `Foto ${form.photos.length + photos.length + 1}`,
-          createdAt: locationStamp.capturedAt,
-          latitude: locationStamp.latitude,
-          longitude: locationStamp.longitude,
-          accuracy: locationStamp.accuracy,
+          createdAt,
+          latitude: locationStamp?.latitude,
+          longitude: locationStamp?.longitude,
+          accuracy: locationStamp?.accuracy,
         });
       }
 
       updateForm({ photos: [...form.photos, ...photos] });
       event.target.value = '';
-      setMessage(
-        typeof locationStamp.latitude === 'number'
-          ? 'Foto adicionada com tarja de geolocalizacao.'
-          : 'Foto adicionada. Localizacao nao autorizada ou indisponivel.'
-      );
+      if (!applyGeoStamp) {
+        setMessage('Foto anexada sem tarja de geolocalizacao.');
+      } else {
+        setMessage(
+          typeof locationStamp?.latitude === 'number'
+            ? 'Foto adicionada com tarja de geolocalizacao.'
+            : 'Foto adicionada. Localizacao nao autorizada ou indisponivel.'
+        );
+      }
     } catch (error) {
       setMessage('Nao foi possivel processar uma das fotos.');
     } finally {
@@ -761,7 +766,7 @@ const FieldSurveys: React.FC = () => {
                         multiple
                         disabled={isSaving}
                         className="hidden"
-                        onChange={handlePhotoUpload}
+                        onChange={event => handlePhotoUpload(event, true)}
                       />
                     </label>
                     <label className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 ${isSaving ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
@@ -773,7 +778,7 @@ const FieldSurveys: React.FC = () => {
                         multiple
                         disabled={isSaving}
                         className="hidden"
-                        onChange={handlePhotoUpload}
+                        onChange={event => handlePhotoUpload(event, false)}
                       />
                     </label>
                   </div>
