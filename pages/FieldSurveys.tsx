@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
-import { compressImage } from '../utils/imageCompressor';
+import { compressImage, ImageLocationStamp } from '../utils/imageCompressor';
 import {
   CachedDocumentType,
   archiveRemoteFieldSurvey,
@@ -58,6 +58,27 @@ const blobToDataUrl = (blob: Blob): Promise<string> => {
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
+  });
+};
+
+const getPhotoLocationStamp = (): Promise<ImageLocationStamp> => {
+  const capturedAt = new Date().toISOString();
+
+  if (!navigator.geolocation) {
+    return Promise.resolve({ capturedAt });
+  }
+
+  return new Promise(resolve => {
+    navigator.geolocation.getCurrentPosition(
+      position => resolve({
+        capturedAt,
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      }),
+      () => resolve({ capturedAt }),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
   });
 };
 
@@ -169,20 +190,29 @@ const FieldSurveys: React.FC = () => {
     setIsSaving(true);
     try {
       const photos: FieldSurveyPhoto[] = [];
+      const locationStamp = await getPhotoLocationStamp();
 
       for (let index = 0; index < files.length; index++) {
-        const blob = await compressImage(files[index]);
+        const blob = await compressImage(files[index], { locationStamp });
         const url = await blobToDataUrl(blob);
         photos.push({
           id: createLocalId(),
           url,
           caption: `Foto ${form.photos.length + photos.length + 1}`,
-          createdAt: new Date().toISOString(),
+          createdAt: locationStamp.capturedAt,
+          latitude: locationStamp.latitude,
+          longitude: locationStamp.longitude,
+          accuracy: locationStamp.accuracy,
         });
       }
 
       updateForm({ photos: [...form.photos, ...photos] });
       event.target.value = '';
+      setMessage(
+        typeof locationStamp.latitude === 'number'
+          ? 'Foto adicionada com tarja de geolocalizacao.'
+          : 'Foto adicionada. Localizacao nao autorizada ou indisponivel.'
+      );
     } catch (error) {
       setMessage('Nao foi possivel processar uma das fotos.');
     } finally {
@@ -712,20 +742,33 @@ const FieldSurveys: React.FC = () => {
               </label>
 
               <div className="md:col-span-2 xl:col-span-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <span className="text-xs font-black uppercase text-slate-500">Fotos</span>
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-                    <span className="material-symbols-outlined text-[18px]">add_a_photo</span>
-                    Adicionar
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      multiple
-                      className="hidden"
-                      onChange={handlePhotoUpload}
-                    />
-                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+                      <span className="material-symbols-outlined text-[18px]">add_a_photo</span>
+                      Tirar foto
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        multiple
+                        className="hidden"
+                        onChange={handlePhotoUpload}
+                      />
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+                      <span className="material-symbols-outlined text-[18px]">photo_library</span>
+                      Anexar foto
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={handlePhotoUpload}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 {form.photos.length > 0 ? (

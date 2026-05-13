@@ -18,6 +18,9 @@ export interface FieldSurveyPhoto {
   url: string;
   caption: string;
   createdAt: string;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
 }
 
 export interface FieldSurvey {
