@@ -121,6 +121,10 @@ const FieldSurveys: React.FC = () => {
   const activeRemoteSurveys = useMemo(() => remoteSurveys.filter(remote => !remote.archivedAt), [remoteSurveys]);
   const archivedRemoteSurveys = useMemo(() => remoteSurveys.filter(remote => !!remote.archivedAt), [remoteSurveys]);
   const canTakePhoto = useMemo(() => isMobileDevice(), []);
+  const visiblePhotos = useMemo(
+    () => [...form.photos].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [form.photos]
+  );
 
   useEffect(() => {
     loadLocalData();
@@ -219,7 +223,7 @@ const FieldSurveys: React.FC = () => {
         });
       }
 
-      updateForm({ photos: [...form.photos, ...photos] });
+      updateForm({ photos: [...photos.reverse(), ...form.photos] });
       event.target.value = '';
       if (!shouldApplyGeoStamp) {
         setMessage('Foto anexada sem tarja de geolocalizacao.');
@@ -761,7 +765,12 @@ const FieldSurveys: React.FC = () => {
 
               <div className="md:col-span-2 xl:col-span-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-xs font-black uppercase text-slate-500">Fotos</span>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black uppercase text-slate-500">Fotos</span>
+                    {form.photos.length > 0 && (
+                      <span className="text-[11px] font-bold text-slate-400">{form.photos.length} foto(s) - mais recentes primeiro</span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {canTakePhoto && (
                       <label className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 ${isSaving ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
@@ -802,7 +811,7 @@ const FieldSurveys: React.FC = () => {
 
                 {form.photos.length > 0 ? (
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                    {form.photos.map(photo => (
+                    {visiblePhotos.map(photo => (
                       <div key={photo.id} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                         <div className="relative aspect-video bg-slate-200">
                           <button
