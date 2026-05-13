@@ -305,8 +305,11 @@ export const buildRemoteSurveyPayload = (survey: FieldSurvey) => ({
   synced_at: new Date().toISOString(),
 });
 
-export const createDocumentFromFieldSurvey = async (remote: RemoteFieldSurveyDocument) => {
-  if (remote.generatedDocumentId) return remote.generatedDocumentId;
+export const createDocumentFromFieldSurvey = async (
+  remote: RemoteFieldSurveyDocument,
+  options: { forceNew?: boolean } = {}
+) => {
+  if (remote.generatedDocumentId && !options.forceNew) return remote.generatedDocumentId;
 
   const payload = buildDocumentPayload({
     ...remote.payload,
@@ -317,7 +320,7 @@ export const createDocumentFromFieldSurvey = async (remote: RemoteFieldSurveyDoc
   if (error) throw error;
 
   const documentId = data?.id;
-  if (documentId) {
+  if (documentId && !remote.generatedDocumentId) {
     await supabase
       .from('field_surveys')
       .update({ generated_document_id: documentId, updated_at: new Date().toISOString() })

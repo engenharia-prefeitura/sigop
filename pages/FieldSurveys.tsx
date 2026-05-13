@@ -80,7 +80,8 @@ const FieldSurveys: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState('');
-  const [isListOpen, setIsListOpen] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [libraryTab, setLibraryTab] = useState<'local' | 'system' | 'archived'>('local');
   const [remoteSurveys, setRemoteSurveys] = useState<RemoteFieldSurveyDocument[]>([]);
 
   const pendingCount = useMemo(
@@ -89,6 +90,8 @@ const FieldSurveys: React.FC = () => {
   );
   const syncedCount = useMemo(() => surveys.filter(item => item.status === 'synced').length, [surveys]);
   const draftCount = useMemo(() => surveys.filter(item => item.status === 'draft').length, [surveys]);
+  const activeRemoteSurveys = useMemo(() => remoteSurveys.filter(remote => !remote.archivedAt), [remoteSurveys]);
+  const archivedRemoteSurveys = useMemo(() => remoteSurveys.filter(remote => !!remote.archivedAt), [remoteSurveys]);
 
   useEffect(() => {
     loadLocalData();
@@ -296,7 +299,7 @@ const FieldSurveys: React.FC = () => {
       photos: survey.photos || [],
     });
     setMessage('Levantamento carregado para edicao.');
-    setIsListOpen(false);
+    setIsLibraryOpen(false);
   };
 
   const removeSurvey = async (survey: FieldSurvey) => {
@@ -338,14 +341,10 @@ const FieldSurveys: React.FC = () => {
     }
   };
 
-  const openRemoteDocument = (survey: FieldSurvey) => {
-    if (survey.remoteId) navigate(`/editor/${survey.remoteId}`);
-  };
-
-  const handleCreateDocument = async (remote: RemoteFieldSurveyDocument) => {
+  const handleCreateDocument = async (remote: RemoteFieldSurveyDocument, forceNew = false) => {
     setIsSyncing(true);
     try {
-      const documentId = await createDocumentFromFieldSurvey(remote);
+      const documentId = await createDocumentFromFieldSurvey(remote, { forceNew });
       await loadLocalData();
       setMessage('Documento tecnico criado a partir do levantamento.');
       if (documentId) navigate(`/editor/${documentId}`);
@@ -419,10 +418,100 @@ const FieldSurveys: React.FC = () => {
     setMessage('Formulario limpo para um novo levantamento.');
   };
 
+  const renderLocalSurveyCard = (survey: FieldSurvey) => {
+    const meta = statusMeta[survey.status];
+    const canEdit = survey.status === 'draft' || survey.status === 'pending' || survey.status === 'error';
+    const canSync = survey.status === 'pending' || survey.status === 'error';
+
+    return (
+      <article key={survey.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h4 className="truncate text-sm font-black text-slate-900">{survey.title}</h4>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              {survey.eventDate ? new Date(`${survey.eventDate}T00:00:00`).toLocaleDateString('pt-BR') : 'Sem data'} · {survey.photos.length} foto(s)
+            </p>
+            {survey.projectName && <p className="mt-1 truncate text-xs font-bold text-slate-500">{survey.projectName}</p>}
+          </div>
+          <span className={`inline-flex flex-none items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-black uppercase ${meta.color}`}>
+            <span className={`material-symbols-outlined text-[14px] ${survey.status === 'syncing' ? 'animate-spin' : ''}`}>{meta.icon}</span>
+            {meta.label}
+          </span>
+        </div>
+
+        {survey.lastError && (
+          <p className="mt-3 rounded-md bg-red-50 p-2 text-xs font-semibold text-red-700">{survey.lastError}</p>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {canEdit && (
+            <button onClick={() => editSurvey(survey)} className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">
+              <span className="material-symbols-outlined text-[16px]">edit</span>
+              Editar
+            </button>
+          )}
+          {canSync && (
+            <button onClick={() => syncOne(survey)} disabled={isSyncing} className="inline-flex h-9 items-center justify-center gap-1 rounded-md bg-primary px-3 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">
+              <span className="material-symbols-outlined text-[16px]">cloud_upload</span>
+              Enviar
+            </button>
+          )}
+          <button onClick={() => removeSurvey(survey)} className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-red-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50">
+            <span className="material-symbols-outlined text-[16px]">delete</span>
+            Remover
+          </button>
+        </div>
+      </article>
+    );
+  };
+
+  const renderRemoteSurveyCard = (remote: RemoteFieldSurveyDocument, archived = false) => (
+    <article key={remote.id} className={`rounded-lg border p-4 shadow-sm ${archived ? 'border-slate-200 bg-slate-50' : 'border-blue-100 bg-blue-50/70'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="truncate text-sm font-black text-slate-900">{remote.title}</h4>
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            {remote.eventDate ? new Date(`${remote.eventDate}T00:00:00`).toLocaleDateString('pt-BR') : new Date(remote.createdAt).toLocaleDateString('pt-BR')}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {remote.generatedDocumentId && <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-black uppercase text-blue-700">Documento</span>}
+            {remote.generatedNotificationId && <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-700">Notificacao</span>}
+            {archived && <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-black uppercase text-slate-700">Arquivado</span>}
+          </div>
+        </div>
+        <span className="inline-flex flex-none items-center gap-1 rounded-full border border-blue-200 bg-white px-2 py-1 text-[10px] font-black uppercase text-blue-700">
+          <span className="material-symbols-outlined text-[14px]">assignment</span>
+          Levantamento
+        </span>
+      </div>
+
+      <p className="mt-3 line-clamp-3 text-xs font-medium text-slate-600">
+        {remote.payload?.notes || remote.payload?.initialInfo || 'Sem observacoes registradas.'}
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button onClick={() => handleCreateDocument(remote, archived)} disabled={isSyncing} className="inline-flex h-9 items-center justify-center gap-1 rounded-md bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">
+          <span className="material-symbols-outlined text-[16px]">description</span>
+          {archived ? 'Reutilizar em documento' : remote.generatedDocumentId ? 'Abrir documento' : 'Gerar documento'}
+        </button>
+        <button onClick={() => handlePrepareNotification(remote)} disabled={!!remote.generatedNotificationId} className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-amber-200 bg-white px-3 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60">
+          <span className="material-symbols-outlined text-[16px]">notifications_active</span>
+          {remote.generatedNotificationId ? 'Notificacao criada' : archived ? 'Reutilizar em notificacao' : 'Usar em notificacao'}
+        </button>
+        {!archived && (
+          <button onClick={() => archiveRemoteSurvey(remote)} className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50">
+            <span className="material-symbols-outlined text-[16px]">archive</span>
+            Arquivar
+          </button>
+        )}
+      </div>
+    </article>
+  );
+
   return (
-    <div className="min-h-screen bg-background-light dark:bg-background-dark p-3 lg:p-5">
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="min-h-screen bg-slate-100 p-0 dark:bg-background-dark sm:p-3 lg:p-5">
+      <div className="mx-auto flex max-w-[1500px] flex-col gap-3 sm:gap-4">
+        <div className="flex flex-col gap-3 px-3 pt-3 sm:px-0 sm:pt-0 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl lg:text-2xl font-black tracking-tight text-slate-950 dark:text-white">Campo Offline</h2>
@@ -433,7 +522,7 @@ const FieldSurveys: React.FC = () => {
                 </span>
               )}
             </div>
-            <p className="mt-0.5 max-w-3xl text-xs font-medium text-slate-500 dark:text-slate-400">
+            <p className="mt-0.5 hidden max-w-3xl text-xs font-medium text-slate-500 dark:text-slate-400 sm:block">
               Registre levantamentos, fotos e observacoes em campo. O material fica no aparelho ate ser enviado para o sistema.
             </p>
           </div>
@@ -458,7 +547,7 @@ const FieldSurveys: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+        <div className="mx-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 sm:mx-0">
           <span className="inline-flex items-center gap-1">
             <span className="material-symbols-outlined text-[17px] text-slate-400">edit_note</span>
             {draftCount} rascunho(s)
@@ -476,26 +565,26 @@ const FieldSurveys: React.FC = () => {
           <span className="h-4 w-px bg-slate-200"></span>
           <span className="inline-flex items-center gap-1 text-blue-700">
             <span className="material-symbols-outlined text-[17px]">description</span>
-            {remoteSurveys.length} no sistema
+            {activeRemoteSurveys.length} no sistema
           </span>
           <button
-            onClick={() => setIsListOpen(current => !current)}
+            onClick={() => setIsLibraryOpen(true)}
             className="ml-auto inline-flex h-8 items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs font-black text-slate-700 hover:bg-slate-100"
           >
-            <span className="material-symbols-outlined text-[17px]">{isListOpen ? 'visibility_off' : 'list_alt'}</span>
-            {isListOpen ? 'Ocultar lista' : 'Ver lista'}
+            <span className="material-symbols-outlined text-[17px]">inventory_2</span>
+            Central
           </button>
         </div>
 
         {message && (
-          <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900">
+          <div className="mx-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900 sm:mx-0">
             <span className="material-symbols-outlined text-[20px]">info</span>
             <span>{message}</span>
           </div>
         )}
 
         <div>
-          <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <section className="min-h-[calc(100vh-9rem)] rounded-none border-y border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:rounded-lg sm:border">
             <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -520,7 +609,7 @@ const FieldSurveys: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 p-3 pb-28 sm:p-4 sm:pb-4 md:grid-cols-2 xl:grid-cols-4">
               <label className="md:col-span-2">
                 <span className="text-xs font-black uppercase text-slate-500">Titulo</span>
                 <input
@@ -594,7 +683,7 @@ const FieldSurveys: React.FC = () => {
                 <textarea
                   value={form.initialInfo}
                   onChange={event => updateForm({ initialInfo: event.target.value })}
-                  rows={3}
+                  rows={4}
                   placeholder="Contexto, solicitacao, condicoes de acesso, envolvidos..."
                   className="mt-1 block w-full rounded-lg border-slate-200 bg-slate-50 font-medium text-slate-800 focus:border-primary focus:ring-primary/20"
                 />
@@ -605,7 +694,7 @@ const FieldSurveys: React.FC = () => {
                 <textarea
                   value={form.notes}
                   onChange={event => updateForm({ notes: event.target.value })}
-                  rows={4}
+                  rows={7}
                   placeholder="Patologias, medidas, referencias, riscos, pendencias..."
                   className="mt-1 block w-full rounded-lg border-slate-200 bg-slate-50 font-medium text-slate-800 focus:border-primary focus:ring-primary/20"
                 />
@@ -616,7 +705,7 @@ const FieldSurveys: React.FC = () => {
                 <textarea
                   value={form.recommendations}
                   onChange={event => updateForm({ recommendations: event.target.value })}
-                  rows={2}
+                  rows={4}
                   placeholder="Documentos tecnicos, notificacoes ou projetos que devem nascer deste levantamento..."
                   className="mt-1 block w-full rounded-lg border-slate-200 bg-slate-50 font-medium text-slate-800 focus:border-primary focus:ring-primary/20"
                 />
@@ -669,7 +758,7 @@ const FieldSurveys: React.FC = () => {
               </div>
             </div>
 
-            <div className="sticky bottom-0 z-10 flex flex-col gap-2 border-t border-slate-100 bg-white/95 p-4 backdrop-blur sm:flex-row sm:justify-end dark:border-slate-800 dark:bg-slate-900/95">
+            <div className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-2 gap-2 border-t border-slate-100 bg-white/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:sticky sm:flex sm:flex-col sm:justify-end sm:p-4 md:flex-row dark:border-slate-800 dark:bg-slate-900/95">
               <button
                 onClick={() => saveLocal('draft')}
                 disabled={isSaving}
@@ -689,23 +778,46 @@ const FieldSurveys: React.FC = () => {
             </div>
           </section>
 
-          {isListOpen && (
-          <aside className="mt-4 rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          {isLibraryOpen && (
+          <aside className="fixed inset-0 z-50 flex items-end bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+            <div className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl dark:bg-slate-900 sm:mx-auto sm:max-w-6xl sm:rounded-2xl">
             <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
               <div>
-                <h3 className="text-sm font-black text-slate-950 dark:text-white">Levantamentos locais</h3>
-                <p className="text-[10px] font-semibold uppercase text-slate-400">Rascunhos e itens pendentes deste aparelho</p>
+                <h3 className="text-base font-black text-slate-950 dark:text-white">Central de levantamentos</h3>
+                <p className="hidden text-xs font-semibold uppercase text-slate-400 sm:block">Locais, sincronizados e arquivados para consulta e reutilizacao</p>
               </div>
               <button
-                onClick={() => setIsListOpen(false)}
+                onClick={() => setIsLibraryOpen(false)}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                title="Ocultar lista"
+                title="Fechar central"
               >
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
-            <div className="max-h-80 overflow-y-auto p-2">
+            <div className="grid grid-cols-3 gap-1 border-b border-slate-100 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-950">
+              {[
+                { id: 'local', label: 'Local', count: surveys.length, icon: 'phone_iphone' },
+                { id: 'system', label: 'Sistema', count: activeRemoteSurveys.length, icon: 'cloud_done' },
+                { id: 'archived', label: 'Arquivados', count: archivedRemoteSurveys.length, icon: 'archive' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setLibraryTab(tab.id as 'local' | 'system' | 'archived')}
+                  className={`flex min-w-0 items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-black transition sm:gap-2 ${
+                    libraryTab === tab.id
+                      ? 'bg-white text-primary shadow-sm dark:bg-slate-800'
+                      : 'text-slate-500 hover:bg-white/70 hover:text-slate-800 dark:hover:bg-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+                  <span className="truncate">{tab.label}</span>
+                  <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700 dark:bg-slate-700 dark:text-slate-100">{tab.count}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className={`${libraryTab === 'local' ? 'block' : 'hidden'} flex-1 overflow-y-auto p-3 sm:p-4`}>
               {surveys.length === 0 ? (
                 <div className="flex min-h-24 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 p-4 text-center text-xs font-semibold text-slate-400">
                   <span className="material-symbols-outlined mb-1 text-3xl opacity-50">inventory_2</span>
@@ -761,15 +873,6 @@ const FieldSurveys: React.FC = () => {
                               Enviar
                             </button>
                           )}
-                          {survey.status === 'synced' && (
-                            <button
-                              onClick={() => openRemoteDocument(survey)}
-                              className="inline-flex h-8 items-center justify-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-                              Abrir
-                            </button>
-                          )}
                           <button
                             onClick={() => removeSurvey(survey)}
                             className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-red-200 bg-white px-2 text-[11px] font-bold text-red-600 hover:bg-red-50"
@@ -785,7 +888,7 @@ const FieldSurveys: React.FC = () => {
               )}
             </div>
 
-            <div className="border-t border-slate-100 p-2 dark:border-slate-800">
+            <div className={`${libraryTab === 'system' ? 'block' : 'hidden'} flex-1 overflow-y-auto p-3 sm:p-4`}>
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
                 <div>
                   <h4 className="text-xs font-black uppercase text-slate-700 dark:text-slate-200">Levantamentos no sistema</h4>
@@ -800,13 +903,13 @@ const FieldSurveys: React.FC = () => {
                 </button>
               </div>
 
-              {remoteSurveys.filter(remote => !remote.archivedAt).length === 0 ? (
+              {activeRemoteSurveys.length === 0 ? (
                 <div className="flex min-h-20 items-center justify-center rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs font-semibold text-slate-400">
                   Nenhum levantamento sincronizado encontrado no sistema.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
-                  {remoteSurveys.filter(remote => !remote.archivedAt).map(remote => (
+                  {activeRemoteSurveys.map(remote => (
                     <article key={remote.id} className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
@@ -849,6 +952,24 @@ const FieldSurveys: React.FC = () => {
                   ))}
                 </div>
               )}
+            </div>
+            <div className={`${libraryTab === 'archived' ? 'block' : 'hidden'} flex-1 overflow-y-auto p-3 sm:p-4`}>
+              <div className="mb-3 px-1">
+                <h4 className="text-xs font-black uppercase text-slate-700 dark:text-slate-200">Levantamentos arquivados</h4>
+                <p className="text-[10px] font-semibold uppercase text-slate-400">Historico guardado para consulta e reutilizacao futura</p>
+              </div>
+
+              {archivedRemoteSurveys.length === 0 ? (
+                <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 p-5 text-center text-sm font-semibold text-slate-400">
+                  <span className="material-symbols-outlined mb-2 text-4xl opacity-50">archive</span>
+                  Nenhum levantamento arquivado.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                  {archivedRemoteSurveys.map(remote => renderRemoteSurveyCard(remote, true))}
+                </div>
+              )}
+            </div>
             </div>
           </aside>
           )}
