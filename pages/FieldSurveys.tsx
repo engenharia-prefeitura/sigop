@@ -37,6 +37,7 @@ type SurveyForm = {
 };
 
 const today = () => new Date().toISOString().split('T')[0];
+const FIELD_SURVEY_AUTOSAVE_PREFIX = 'sigop_field_survey_autosave';
 
 const emptyForm = (): SurveyForm => ({
   title: '',
@@ -87,6 +88,18 @@ const isMobileDevice = () => {
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 };
 
+const hasFormContent = (form: SurveyForm) => !!(
+  form.id ||
+  form.title.trim() ||
+  form.documentTypeId ||
+  form.projectId ||
+  form.location.trim() ||
+  form.initialInfo.trim() ||
+  form.notes.trim() ||
+  form.recommendations.trim() ||
+  form.photos.length
+);
+
 const statusMeta = {
   draft: { label: 'Rascunho local', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: 'edit_note' },
   pending: { label: 'Aguardando envio', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: 'sync_problem' },
@@ -125,10 +138,60 @@ const FieldSurveys: React.FC = () => {
     () => [...form.photos].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [form.photos]
   );
+  const autosaveKey = useMemo(
+    () => `${FIELD_SURVEY_AUTOSAVE_PREFIX}_${user?.id || 'anon'}`,
+    [user?.id]
+  );
 
   useEffect(() => {
     loadLocalData();
   }, [user?.id]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(autosaveKey);
+      if (!raw) return;
+
+      const saved = JSON.parse(raw) as { form?: SurveyForm };
+      if (saved?.form && hasFormContent(saved.form)) {
+        setForm(saved.form);
+        setMessage('Rascunho em andamento restaurado neste aparelho.');
+      }
+    } catch {
+      localStorage.removeItem(autosaveKey);
+    }
+  }, [autosaveKey]);
+
+  useEffect(() => {
+    if (!hasFormContent(form)) {
+      localStorage.removeItem(autosaveKey);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(autosaveKey, JSON.stringify({
+          form,
+          savedAt: new Date().toISOString(),
+        }));
+      } catch {
+        setMessage('Nao foi possivel manter o rascunho automatico. Salve o rascunho manualmente.');
+      }
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [autosaveKey, form]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasFormContent(form)) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [form]);
 
   useEffect(() => {
     const handleOnline = () => setMessage('Internet voltou. Voce ja pode sincronizar os levantamentos pendentes.');
@@ -157,6 +220,7 @@ const FieldSurveys: React.FC = () => {
   };
 
   const updateForm = (patch: Partial<SurveyForm>) => setForm(current => ({ ...current, ...patch }));
+  const clearAutosave = () => localStorage.removeItem(autosaveKey);
 
   const handleDocumentTypeChange = (id: string) => {
     const selected = documentTypes.find(item => item.id === id);
@@ -322,6 +386,7 @@ const FieldSurveys: React.FC = () => {
     try {
       await saveFieldSurvey(survey);
       if (status === 'pending') {
+        clearAutosave();
         setForm(emptyForm());
       } else {
         setForm(current => ({ ...current, id: survey.id }));
@@ -363,7 +428,10 @@ const FieldSurveys: React.FC = () => {
 
     await deleteFieldSurvey(survey.id);
     await loadLocalData();
-    if (form.id === survey.id) setForm(emptyForm());
+    if (form.id === survey.id) {
+      clearAutosave();
+      setForm(emptyForm());
+    }
   };
 
   const syncOne = async (survey: FieldSurvey) => {
@@ -453,19 +521,10 @@ const FieldSurveys: React.FC = () => {
   };
 
   const startNewSurvey = () => {
-    const hasContent = !!(
-      form.id ||
-      form.title ||
-      form.documentTypeId ||
-      form.projectId ||
-      form.location ||
-      form.initialInfo ||
-      form.notes ||
-      form.recommendations ||
-      form.photos.length
-    );
+    const hasContent = hasFormContent(form);
 
     if (hasContent && !confirm('Iniciar um novo levantamento e limpar o formulario atual?')) return;
+    clearAutosave();
     setForm(emptyForm());
     setMessage('Formulario limpo para um novo levantamento.');
   };
