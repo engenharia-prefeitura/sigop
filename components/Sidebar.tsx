@@ -45,12 +45,20 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   ];
 
   const location = useLocation();
+  const isFieldSurveysPage = location.pathname === '/field-surveys';
+  const isFloatingCollapsed = isFieldSurveysPage && collapsed;
 
   const visibleItems = menuItems.filter(item => !item.adminOnly || isAdmin);
 
   return (
-    <aside className={`${collapsed ? 'w-20' : 'w-64'} flex-none flex flex-col bg-[#1e293b] dark:bg-[#101622] text-white h-full border-r border-slate-700/50 z-30 transition-all duration-300 print:hidden`}>
-      <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} gap-3 px-4 py-4 border-b border-slate-700/50 relative group`}>
+    <aside
+      className={`flex-none flex flex-col text-white h-full z-30 transition-all duration-300 print:hidden ${
+        isFloatingCollapsed
+          ? 'w-0 border-r-0 bg-transparent dark:bg-transparent lg:w-20 lg:border-r lg:border-slate-700/50 lg:bg-[#1e293b] lg:dark:bg-[#101622]'
+          : `${collapsed ? 'w-20' : 'w-64'} border-r border-slate-700/50 bg-[#1e293b] dark:bg-[#101622]`
+      }`}
+    >
+      <div className={`${isFloatingCollapsed ? 'hidden lg:flex' : 'flex'} items-center ${collapsed ? 'justify-center' : 'justify-between'} gap-3 px-4 py-4 border-b border-slate-700/50 relative group`}>
         <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''} overflow-hidden`}>
           <div className="bg-primary rounded-lg size-10 flex-none flex items-center justify-center text-white">
             <span className="material-symbols-outlined !text-3xl">architecture</span>
@@ -74,7 +82,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         </button>
       </div>
 
-      <nav className="flex-1 flex flex-col gap-1 p-2 overflow-y-auto">
+      {isFloatingCollapsed && (
+        <button
+          onClick={() => setCollapsed(false)}
+          className="fixed left-1 top-1/2 z-50 flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-800 text-slate-100 shadow-lg shadow-slate-950/20 transition-all hover:bg-slate-700 lg:hidden"
+          title="Expandir menu"
+        >
+          <span className="material-symbols-outlined text-lg">chevron_right</span>
+        </button>
+      )}
+
+      <nav className={`${isFloatingCollapsed ? 'hidden lg:flex' : 'flex'} flex-1 flex-col gap-1 p-2 overflow-y-auto`}>
         {visibleItems.map((item) => (
           <React.Fragment key={item.path}>
             <NavLink
@@ -119,7 +137,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         ))}
       </nav>
 
-      <div className="p-2 mt-auto border-t border-slate-700/50 flex flex-col gap-1">
+      <div className={`${isFloatingCollapsed ? 'hidden lg:flex' : 'flex'} p-2 mt-auto border-t border-slate-700/50 flex-col gap-1`}>
         <NavLink
           to="/settings"
           title={collapsed ? 'Configurações' : ''}
