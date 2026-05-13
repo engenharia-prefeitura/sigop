@@ -85,7 +85,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
       {isFloatingCollapsed && (
         <button
           onClick={() => setCollapsed(false)}
-          className="fixed left-1 top-1/2 z-50 flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-800 text-slate-100 shadow-lg shadow-slate-950/20 transition-all hover:bg-slate-700 lg:hidden"
+          className="fixed left-1 top-10 z-50 flex size-9 items-center justify-center rounded-full border border-slate-600 bg-slate-800 text-slate-100 shadow-lg shadow-slate-950/20 transition-all hover:bg-slate-700 lg:hidden"
           title="Expandir menu"
         >
           <span className="material-symbols-outlined text-lg">chevron_right</span>
