@@ -135,7 +135,13 @@ const FieldSurveys: React.FC = () => {
   const archivedRemoteSurveys = useMemo(() => remoteSurveys.filter(remote => !!remote.archivedAt), [remoteSurveys]);
   const canTakePhoto = useMemo(() => isMobileDevice(), []);
   const visiblePhotos = useMemo(
-    () => [...form.photos].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    () => form.photos
+      .map((photo, index) => ({ photo, index }))
+      .sort((a, b) => {
+        const byDate = new Date(b.photo.createdAt).getTime() - new Date(a.photo.createdAt).getTime();
+        return byDate || b.index - a.index;
+      })
+      .map(item => item.photo),
     [form.photos]
   );
   const autosaveKey = useMemo(
@@ -287,7 +293,7 @@ const FieldSurveys: React.FC = () => {
         });
       }
 
-      updateForm({ photos: [...photos.reverse(), ...form.photos] });
+      updateForm({ photos: [...form.photos, ...photos] });
       event.target.value = '';
       if (!shouldApplyGeoStamp) {
         setMessage('Foto anexada sem tarja de geolocalizacao.');
