@@ -425,6 +425,76 @@ const FieldSurveys: React.FC = () => {
     setIsLibraryOpen(false);
   };
 
+  const reopenLocalAsDraft = async (survey: FieldSurvey) => {
+    if (survey.status === 'draft') {
+      editSurvey(survey);
+      return;
+    }
+
+    if (!confirm('Voltar este levantamento para rascunho e ajustar antes de enviar?')) return;
+
+    const draft: FieldSurvey = {
+      ...survey,
+      status: 'draft',
+      lastError: '',
+      updatedAt: new Date().toISOString(),
+    };
+
+    setIsSaving(true);
+    try {
+      await saveFieldSurvey(draft);
+      await loadLocalData();
+      editSurvey(draft);
+      setMessage('Levantamento voltou para rascunho.');
+    } catch (error: any) {
+      setMessage(error.message || 'Nao foi possivel voltar para rascunho.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const reopenRemoteAsDraft = async (remote: RemoteFieldSurveyDocument) => {
+    if (!user?.id) {
+      setMessage('Entre no sistema para criar um rascunho local deste levantamento.');
+      return;
+    }
+
+    const hasCurrentContent = hasFormContent(form);
+    if (hasCurrentContent && !confirm('Substituir o formulario atual por este levantamento do sistema?')) return;
+
+    if (!confirm('Criar uma copia local em rascunho para ajustar? Ao finalizar e sincronizar, o levantamento no sistema sera atualizado.')) return;
+
+    const source = remote.payload;
+    const now = new Date().toISOString();
+    const draft: FieldSurvey = {
+      ...source,
+      id: remote.localId || source.id || createLocalId(),
+      userId: source.userId || user.id,
+      userEmail: source.userEmail || user.email,
+      status: 'draft',
+      remoteId: remote.id,
+      lastError: '',
+      attempts: source.attempts || 0,
+      createdAt: source.createdAt || remote.createdAt || now,
+      updatedAt: now,
+      syncedAt: remote.syncedAt || source.syncedAt,
+    };
+
+    setIsSaving(true);
+    try {
+      clearAutosave();
+      await saveFieldSurvey(draft);
+      await loadLocalData();
+      editSurvey(draft);
+      setLibraryTab('local');
+      setMessage('Levantamento do sistema voltou para rascunho local.');
+    } catch (error: any) {
+      setMessage(error.message || 'Nao foi possivel criar o rascunho local.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const removeSurvey = async (survey: FieldSurvey) => {
     const text = survey.status === 'synced'
       ? 'Remover a copia local deste levantamento sincronizado?'
@@ -567,6 +637,12 @@ const FieldSurveys: React.FC = () => {
               Editar
             </button>
           )}
+          {survey.status !== 'draft' && (
+            <button onClick={() => reopenLocalAsDraft(survey)} disabled={isSaving} className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60">
+              <span className="material-symbols-outlined text-[16px]">edit_note</span>
+              Voltar rascunho
+            </button>
+          )}
           {canSync && (
             <button onClick={() => syncOne(survey)} disabled={isSyncing} className="inline-flex h-9 items-center justify-center gap-1 rounded-md bg-primary px-3 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">
               <span className="material-symbols-outlined text-[16px]">cloud_upload</span>
@@ -615,6 +691,12 @@ const FieldSurveys: React.FC = () => {
           <span className="material-symbols-outlined text-[16px]">notifications_active</span>
           {remote.generatedNotificationId ? 'Notificacao criada' : archived ? 'Reutilizar em notificacao' : 'Usar em notificacao'}
         </button>
+        {!archived && (
+          <button onClick={() => reopenRemoteAsDraft(remote)} disabled={isSaving} className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60">
+            <span className="material-symbols-outlined text-[16px]">edit_note</span>
+            Voltar rascunho
+          </button>
+        )}
         {!archived && (
           <button onClick={() => archiveRemoteSurvey(remote)} className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50">
             <span className="material-symbols-outlined text-[16px]">archive</span>
@@ -1040,6 +1122,16 @@ const FieldSurveys: React.FC = () => {
                               Editar
                             </button>
                           )}
+                          {survey.status !== 'draft' && (
+                            <button
+                              onClick={() => reopenLocalAsDraft(survey)}
+                              disabled={isSaving}
+                              className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-emerald-200 bg-white px-2 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">edit_note</span>
+                              Rascunho
+                            </button>
+                          )}
                           {canSync && (
                             <button
                               onClick={() => syncOne(survey)}
@@ -1116,6 +1208,14 @@ const FieldSurveys: React.FC = () => {
                         >
                           <span className="material-symbols-outlined text-[16px]">notifications_active</span>
                           {remote.generatedNotificationId ? 'Notificacao criada' : 'Usar em notificacao'}
+                        </button>
+                        <button
+                          onClick={() => reopenRemoteAsDraft(remote)}
+                          disabled={isSaving}
+                          className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-emerald-200 bg-white px-2 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">edit_note</span>
+                          Rascunho
                         </button>
                         <button
                           onClick={() => archiveRemoteSurvey(remote)}
