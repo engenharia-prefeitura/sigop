@@ -237,6 +237,26 @@ const paragraphs = (text: string) => {
     .join('');
 };
 
+const getPhotoCaptionNumber = (caption?: string) => {
+  const match = caption?.match(/\d+/);
+  return match ? Number(match[0]) : Number.POSITIVE_INFINITY;
+};
+
+const getPhotosInDocumentOrder = (photos: FieldSurveyPhoto[] = []) => {
+  return photos
+    .map((photo, index) => ({ photo, index }))
+    .sort((a, b) => {
+      const captionOrder = getPhotoCaptionNumber(a.photo.caption) - getPhotoCaptionNumber(b.photo.caption);
+      if (captionOrder !== 0) return captionOrder;
+
+      const dateOrder = new Date(a.photo.createdAt).getTime() - new Date(b.photo.createdAt).getTime();
+      if (dateOrder !== 0) return dateOrder;
+
+      return a.index - b.index;
+    })
+    .map(item => item.photo);
+};
+
 export const buildDocumentPayload = (survey: FieldSurvey) => ({
   title: survey.title,
   description: `Levantamento de campo criado offline em ${new Date(survey.createdAt).toLocaleString('pt-BR')}.`,
@@ -282,7 +302,7 @@ export const buildDocumentPayload = (survey: FieldSurvey) => ({
         title: 'Relatorio Fotografico',
         type: 'photos',
         content: '',
-        items: survey.photos.map(photo => ({
+        items: getPhotosInDocumentOrder(survey.photos).map(photo => ({
           id: photo.id,
           url: photo.url,
           caption: photo.caption,
