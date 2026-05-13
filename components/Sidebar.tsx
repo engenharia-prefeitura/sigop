@@ -33,6 +33,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
     { path: '/documents', icon: 'description', label: 'Documentos Técnicos' },
     { path: '/field-surveys', icon: 'offline_bolt', label: 'Campo Offline' },
     { path: '/notifications', icon: 'notifications_active', label: 'Notificações' },
+    { path: '/ai-assistant', icon: 'psychology', label: 'Assistente IA' },
     {
       path: '/projects', icon: 'engineering', label: 'Obras',
       children: [

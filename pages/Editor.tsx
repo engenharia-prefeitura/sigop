@@ -4,6 +4,7 @@ import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../components/AuthContext';
 import RichTextEditor from '../components/RichTextEditor';
+import AIAssistantPanel from '../components/AIAssistantPanel';
 
 // Helper de debounce para salvar automaticamente (agora no storage)
 const useDebounce = (value: any, delay: number) => {
@@ -77,6 +78,7 @@ const Editor: React.FC = () => {
   const [zoomedPhoto, setZoomedPhoto] = useState<string | null>(null);
   const [expandedSectionId, setExpandedSectionId] = useState<number | null>(null);
   const [hasAlreadySigned, setHasAlreadySigned] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
 
   // Debounce para salvar conteúdo
   const debouncedSections = useDebounce(sections, 1000);
@@ -389,6 +391,22 @@ const Editor: React.FC = () => {
     }]);
   };
 
+  const insertAiSection = (sectionTitle: string, content: string) => {
+    setSections([...sections, {
+      id: Date.now(),
+      title: sectionTitle,
+      type: 'text',
+      content: content.replace(/\n/g, '<br/>'),
+      items: []
+    }]);
+  };
+
+  const replaceSectionContent = (sectionId: number, content: string) => {
+    setSections(sections.map(section => (
+      section.id === sectionId ? { ...section, content } : section
+    )));
+  };
+
   const handlePhotoUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -562,6 +580,14 @@ const Editor: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setAiPanelOpen(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 h-10 rounded-lg text-xs font-bold uppercase flex items-center gap-2 shadow"
+            title="Abrir assistente IA local"
+          >
+            <span className="material-symbols-outlined text-[18px]">psychology</span> IA
+          </button>
+
           {(status === 'awaiting_signature' || status === 'finished') && (
             <button onClick={handleRevertDraft} className="text-xs font-bold text-gray-500 hover:text-red-500 uppercase px-4 border border-gray-200 h-10 rounded-lg hover:border-red-200 bg-white">
               {status === 'finished' ? 'Desfazer Finalização' : 'Voltar para Rascunho'}
@@ -744,6 +770,21 @@ const Editor: React.FC = () => {
           )}
         </div>
       </div>
+
+      <AIAssistantPanel
+        open={aiPanelOpen}
+        onClose={() => setAiPanelOpen(false)}
+        disabled={status !== 'draft'}
+        documentContext={{
+          title,
+          typeName: docTypesList.find(t => t.id === docType)?.name || 'Geral',
+          description,
+          eventDate,
+          sections
+        }}
+        onInsertSection={insertAiSection}
+        onReplaceSection={replaceSectionContent}
+      />
 
       {/* Modal de Edição Expandida */}
       {expandedSectionId !== null && (

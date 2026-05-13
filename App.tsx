@@ -14,6 +14,7 @@ import PrintPreview from './pages/PrintPreview';
 import GeneralReportPreview from './pages/GeneralReportPreview';
 import DesignProjects from './pages/DesignProjects';
 import FieldSurveys from './pages/FieldSurveys';
+import AIAssistantSettings from './pages/AIAssistantSettings';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import { AuthProvider, useAuth } from './components/AuthContext';
@@ -94,6 +95,7 @@ const router = createHashRouter([
           { path: "/editor/:id", element: <Editor /> },
           { path: "/notifications", element: <Notifications /> },
           { path: "/field-surveys", element: <FieldSurveys /> },
+          { path: "/ai-assistant", element: <AIAssistantSettings /> },
           { path: "/settings", element: <Settings /> },
         ]
       }

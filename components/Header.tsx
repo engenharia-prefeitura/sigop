@@ -25,6 +25,7 @@ const Header: React.FC = () => {
       case '/users': return 'Gestão de Usuários';
       case '/settings': return 'Configurações do Sistema';
       case '/notifications': return 'Fiscalização';
+      case '/ai-assistant': return 'Assistente IA Local';
       default:
         if (location.pathname.startsWith('/editor')) return 'Editor de Documento';
         return 'SIGOP';
