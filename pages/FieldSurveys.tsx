@@ -5,6 +5,7 @@ import { compressImage } from '../utils/imageCompressor';
 import {
   CachedDocumentType,
   CachedProject,
+  createDocumentFromFieldSurvey,
   createLocalId,
   deleteFieldSurvey,
   FieldSurvey,
@@ -254,6 +255,10 @@ const FieldSurveys: React.FC = () => {
   };
 
   const saveLocal = async (status: 'draft' | 'pending') => {
+    if (status === 'pending' && !confirm('Finalizar este levantamento localmente e colocá-lo na fila de sincronização?')) {
+      return;
+    }
+
     const survey = makeSurvey(status);
     if (!survey) return;
 
@@ -334,6 +339,39 @@ const FieldSurveys: React.FC = () => {
 
   const openRemoteDocument = (survey: FieldSurvey) => {
     if (survey.remoteId) navigate(`/editor/${survey.remoteId}`);
+  };
+
+  const handleCreateDocument = async (remote: RemoteFieldSurveyDocument) => {
+    setIsSyncing(true);
+    try {
+      const documentId = await createDocumentFromFieldSurvey(remote);
+      await loadLocalData();
+      setMessage('Documento tecnico criado a partir do levantamento.');
+      if (documentId) navigate(`/editor/${documentId}`);
+    } catch (error: any) {
+      setMessage(error.message || 'Nao foi possivel gerar o documento tecnico.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handlePrepareNotification = (remote: RemoteFieldSurveyDocument) => {
+    const survey = remote.payload;
+    const draft = {
+      locInfracao: survey.location || survey.projectName || '',
+      observacoes: [
+        `Levantamento de origem: ${survey.title}`,
+        survey.initialInfo,
+        survey.notes,
+        survey.recommendations,
+      ].filter(Boolean).join('\n\n'),
+      fotos: survey.photos?.map(photo => photo.url) || [],
+      photosPerPage: 4,
+      authorId: user?.id,
+    };
+
+    localStorage.setItem('draft_notif_new', JSON.stringify(draft));
+    navigate('/notifications');
   };
 
   const startNewSurvey = () => {
@@ -629,7 +667,7 @@ const FieldSurveys: React.FC = () => {
             <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
               <div>
                 <h3 className="text-sm font-black text-slate-950 dark:text-white">Levantamentos locais</h3>
-                <p className="text-[10px] font-semibold uppercase text-slate-400">Apoio rapido para editar, enviar ou remover</p>
+                <p className="text-[10px] font-semibold uppercase text-slate-400">Rascunhos e itens pendentes deste aparelho</p>
               </div>
               <button
                 onClick={() => setIsListOpen(false)}
@@ -723,8 +761,8 @@ const FieldSurveys: React.FC = () => {
             <div className="border-t border-slate-100 p-2 dark:border-slate-800">
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
                 <div>
-                  <h4 className="text-xs font-black uppercase text-slate-700 dark:text-slate-200">Enviados no sistema</h4>
-                  <p className="text-[10px] font-semibold uppercase text-slate-400">Aparecem em qualquer aparelho do mesmo usuario</p>
+                  <h4 className="text-xs font-black uppercase text-slate-700 dark:text-slate-200">Levantamentos no sistema</h4>
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">Aparecem em qualquer aparelho e podem virar documento ou notificacao</p>
                 </div>
                 <button
                   onClick={loadLocalData}
@@ -752,16 +790,26 @@ const FieldSurveys: React.FC = () => {
                         </div>
                         <span className="inline-flex flex-none items-center gap-1 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-[9px] font-black uppercase text-blue-700">
                           <span className="material-symbols-outlined text-[13px]">description</span>
-                          Documento
+                          Levantamento
                         </span>
                       </div>
-                      <button
-                        onClick={() => navigate(`/editor/${remote.id}`)}
-                        className="mt-3 inline-flex h-8 items-center justify-center gap-1 rounded-md bg-blue-600 px-2 text-[11px] font-bold text-white hover:bg-blue-700"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-                        Abrir no sistema
-                      </button>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => handleCreateDocument(remote)}
+                          disabled={isSyncing}
+                          className="inline-flex h-8 items-center justify-center gap-1 rounded-md bg-blue-600 px-2 text-[11px] font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">description</span>
+                          {remote.generatedDocumentId ? 'Abrir documento' : 'Gerar documento'}
+                        </button>
+                        <button
+                          onClick={() => handlePrepareNotification(remote)}
+                          className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-amber-200 bg-white px-2 text-[11px] font-bold text-amber-700 hover:bg-amber-50"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">notifications_active</span>
+                          Usar em notificacao
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>

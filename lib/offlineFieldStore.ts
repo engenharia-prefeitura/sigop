@@ -53,13 +53,15 @@ export interface OfflineFieldCache {
 export interface RemoteFieldSurveyDocument {
   id: string;
   title: string;
-  type: string;
   status: string;
   eventDate?: string;
   createdAt: string;
   syncedAt?: string;
   localId?: string;
   capturedBy?: string;
+  payload: FieldSurvey;
+  generatedDocumentId?: string;
+  generatedNotificationId?: string;
 }
 
 const DB_NAME = 'sigop_offline_field';
@@ -177,26 +179,27 @@ export const getRemoteFieldSurveyDocuments = async (userId?: string): Promise<Re
   if (!userId || !navigator.onLine) return [];
 
   const { data, error } = await supabase
-    .from('documents')
-    .select('id, title, type, status, event_date, created_at, content')
-    .eq('created_by', userId)
+    .from('field_surveys')
+    .select('id, title, status, event_date, created_at, synced_at, local_id, user_email, payload, generated_document_id, generated_notification_id')
+    .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(100);
 
   if (error) throw error;
 
   return (data || [])
-    .filter((doc: any) => !!doc.content?.offline_source)
-    .map((doc: any) => ({
-      id: doc.id,
-      title: doc.title,
-      type: doc.type || 'Levantamento de Campo',
-      status: doc.status,
-      eventDate: doc.event_date,
-      createdAt: doc.created_at,
-      syncedAt: doc.content?.offline_source?.synced_at,
-      localId: doc.content?.offline_source?.local_id,
-      capturedBy: doc.content?.offline_source?.captured_by,
+    .map((item: any) => ({
+      id: item.id,
+      title: item.title,
+      status: item.status,
+      eventDate: item.event_date,
+      createdAt: item.created_at,
+      syncedAt: item.synced_at,
+      localId: item.local_id,
+      capturedBy: item.user_email,
+      payload: item.payload,
+      generatedDocumentId: item.generated_document_id,
+      generatedNotificationId: item.generated_notification_id,
     }));
 };
 
@@ -284,6 +287,44 @@ export const buildDocumentPayload = (survey: FieldSurvey) => ({
   },
 });
 
+export const buildRemoteSurveyPayload = (survey: FieldSurvey) => ({
+  local_id: survey.id,
+  user_id: survey.userId,
+  user_email: survey.userEmail || null,
+  title: survey.title,
+  status: 'synced',
+  document_type_id: survey.documentTypeId || null,
+  document_type_name: survey.documentTypeName || 'Levantamento de Campo',
+  project_id: survey.projectId || null,
+  project_name: survey.projectName || null,
+  event_date: survey.eventDate || null,
+  location: survey.location || null,
+  payload: survey,
+  synced_at: new Date().toISOString(),
+});
+
+export const createDocumentFromFieldSurvey = async (remote: RemoteFieldSurveyDocument) => {
+  if (remote.generatedDocumentId) return remote.generatedDocumentId;
+
+  const payload = buildDocumentPayload({
+    ...remote.payload,
+    id: remote.localId || remote.payload.id,
+  });
+
+  const { data, error } = await supabase.from('documents').insert(payload).select('id').single();
+  if (error) throw error;
+
+  const documentId = data?.id;
+  if (documentId) {
+    await supabase
+      .from('field_surveys')
+      .update({ generated_document_id: documentId, updated_at: new Date().toISOString() })
+      .eq('id', remote.id);
+  }
+
+  return documentId;
+};
+
 export const syncFieldSurvey = async (survey: FieldSurvey): Promise<FieldSurvey> => {
   if (!navigator.onLine) {
     throw new Error('Sem internet para sincronizar agora.');
@@ -291,8 +332,8 @@ export const syncFieldSurvey = async (survey: FieldSurvey): Promise<FieldSurvey>
 
   await markSurveyStatus(survey, 'syncing', { attempts: survey.attempts + 1, lastError: '' });
 
-  const payload = buildDocumentPayload(survey);
-  const { data, error } = await supabase.from('documents').insert(payload).select('id').single();
+  const payload = buildRemoteSurveyPayload(survey);
+  const { data, error } = await supabase.from('field_surveys').upsert(payload, { onConflict: 'local_id' }).select('id').single();
 
   if (error) {
     const failed = {
