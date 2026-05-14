@@ -67,6 +67,13 @@ const getPhotos = (sections: any[]) => sections
   .flatMap(section => section.items || [])
   .filter((photo: any) => photo?.url);
 
+const getImageLimit = (model: string) => {
+  if (model.startsWith('moondream')) return 1;
+  if (model.startsWith('gemma3')) return 2;
+  if (model.startsWith('qwen2.5vl:3b')) return 2;
+  return 3;
+};
+
 const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   open,
   onClose,
@@ -87,6 +94,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const knowledge = useMemo(() => loadKnowledgePack(), [open, messages.length]);
   const textSections = documentContext.sections.filter(section => section.type !== 'photos');
   const photos = getPhotos(documentContext.sections);
+  const imageLimit = getImageLimit(settings.model);
 
   useEffect(() => {
     if (!open) return;
@@ -114,7 +122,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
   const buildMessages = (instruction: string, includeImages = false): AiChatMessage[] => {
     const imagePayload = includeImages
-      ? photos.slice(0, 8).map((photo: any) => stripDataUrlPrefix(photo.url))
+      ? photos.slice(0, imageLimit).map((photo: any) => stripDataUrlPrefix(photo.url))
       : undefined;
 
     return [
@@ -189,6 +197,12 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           </div>
         )}
 
+        {photos.length > imageLimit && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs font-bold text-blue-900">
+            Para proteger computadores com pouca memoria, o modelo {settings.model} analisara {imageLimit} foto(s) por vez. Reduza as fotos no documento ou use perguntas por partes para analisar o restante.
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2">
           <button
             disabled={loading || status !== 'online'}
@@ -228,7 +242,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
             onChange={event => setInput(event.target.value)}
           />
           <div className="flex items-center justify-between border-t border-slate-100 p-2">
-            <span className="text-[10px] font-bold uppercase text-slate-400">{photos.length} foto(s) no documento</span>
+            <span className="text-[10px] font-bold uppercase text-slate-400">{photos.length} foto(s) no documento · limite IA: {imageLimit}</span>
             <button
               disabled={loading || status !== 'online' || !input.trim()}
               onClick={sendChat}
