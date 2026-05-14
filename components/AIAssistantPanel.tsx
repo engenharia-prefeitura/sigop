@@ -169,10 +169,10 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           setStatus('online');
           setStatusMessage(`IA local conectada: ${settings.model}`);
         }
-      } catch {
+      } catch (err: any) {
         if (!cancelled) {
           setStatus('offline');
-          setStatusMessage('Ollama local nao encontrado. Configure em Assistente IA.');
+          setStatusMessage(err?.message || 'Ollama local nao encontrado. Configure em Assistente IA.');
         }
       }
     };

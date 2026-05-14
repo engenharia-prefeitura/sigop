@@ -4,10 +4,16 @@ $listenUrl = "http://localhost:11435/"
 $ollamaBaseUrl = "http://127.0.0.1:11434"
 
 function Add-CorsHeaders {
-  param($Response)
-  $Response.Headers["Access-Control-Allow-Origin"] = "*"
+  param($Response, $Request)
+  $origin = $Request.Headers["Origin"]
+  if ($origin -and ($origin -eq "https://engenharia-prefeitura.github.io" -or $origin -eq "http://localhost:5173" -or $origin -eq "http://127.0.0.1:5173")) {
+    $Response.Headers["Access-Control-Allow-Origin"] = $origin
+    $Response.Headers["Vary"] = "Origin"
+  } else {
+    $Response.Headers["Access-Control-Allow-Origin"] = "*"
+  }
   $Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-  $Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+  $Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Access-Control-Request-Private-Network"
   $Response.Headers["Access-Control-Allow-Private-Network"] = "true"
 }
 
@@ -19,7 +25,7 @@ while ($listener.IsListening) {
   $context = $listener.GetContext()
   $request = $context.Request
   $response = $context.Response
-  Add-CorsHeaders $response
+  Add-CorsHeaders $response $request
 
   try {
     if ($request.HttpMethod -eq "OPTIONS") {

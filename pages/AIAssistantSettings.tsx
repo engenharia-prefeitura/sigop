@@ -98,9 +98,9 @@ const AIAssistantSettings: React.FC = () => {
       setStatusMessage(modelFound
         ? `Ollama ativo e modelo ${settings.model} encontrado.`
         : `Ollama ativo, mas o modelo ${settings.model} ainda nao foi baixado.`);
-    } catch {
+    } catch (err: any) {
       setStatus('offline');
-      setStatusMessage('Ollama nao respondeu neste computador. Baixe e execute o instalador local.');
+      setStatusMessage(err?.message || 'Ollama nao respondeu neste computador. Baixe e execute o instalador local.');
     }
   };
 

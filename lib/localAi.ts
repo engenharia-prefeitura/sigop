@@ -118,8 +118,25 @@ export const addApprovedExample = (example: string) => {
 
 export const stripDataUrlPrefix = (image: string) => image.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
 
+type LocalNetworkRequestInit = RequestInit & {
+  targetAddressSpace?: 'local';
+};
+
+const localNetworkFetch = (url: string, init: RequestInit = {}) => {
+  const requestInit: LocalNetworkRequestInit = {
+    ...init,
+    targetAddressSpace: 'local'
+  };
+  return fetch(url, requestInit);
+};
+
 export const checkOllama = async (settings = loadAiSettings()) => {
-  const response = await fetch(`${settings.endpoint.replace(/\/$/, '')}/api/tags`);
+  let response: Response;
+  try {
+    response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/api/tags`);
+  } catch (err) {
+    throw new Error(formatLocalNetworkError(err));
+  }
   if (!response.ok) throw new Error('Ollama local não respondeu.');
   return response.json();
 };
@@ -128,11 +145,16 @@ export const pullModel = async (
   settings = loadAiSettings(),
   onProgress?: (message: string) => void
 ) => {
-  const response = await fetch(`${settings.endpoint.replace(/\/$/, '')}/api/pull`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: settings.model, stream: true })
-  });
+  let response: Response;
+  try {
+    response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: settings.model, stream: true })
+    });
+  } catch (err) {
+    throw new Error(formatLocalNetworkError(err));
+  }
 
   if (!response.ok || !response.body) throw new Error('Não foi possível baixar o modelo.');
 
@@ -167,17 +189,23 @@ export const chatWithLocalAi = async (
   settings = loadAiSettings(),
   signal?: AbortSignal
 ): Promise<string> => {
-  const response = await fetch(`${settings.endpoint.replace(/\/$/, '')}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      model: settings.model,
-      stream: false,
-      messages,
-      options: getModelOptions(settings.model)
-    })
-  });
+  let response: Response;
+  try {
+    response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        model: settings.model,
+        stream: false,
+        messages,
+        options: getModelOptions(settings.model)
+      })
+    });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw err;
+    throw new Error(formatLocalNetworkError(err));
+  }
 
   if (!response.ok) {
     const details = await response.text().catch(() => '');
@@ -196,6 +224,14 @@ export const chatWithLocalAi = async (
   }
 
   return text;
+};
+
+const formatLocalNetworkError = (err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err || '');
+  if (/failed to fetch|networkerror|load failed|err_failed|denied/i.test(message)) {
+    return 'O navegador bloqueou o acesso a IA local deste computador. Quando aparecer a permissao de rede local, clique em Permitir. Se nao aparecer, execute novamente o instalador unico do Assistente IA e depois clique em Verificar IA local.';
+  }
+  return message || 'Nao foi possivel conectar a IA local neste computador.';
 };
 
 const getModelOptions = (model: string) => {
