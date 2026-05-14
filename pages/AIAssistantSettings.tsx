@@ -140,16 +140,10 @@ const AIAssistantSettings: React.FC = () => {
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Modelo</label>
-              <select
-                value={settings.model}
-                onChange={event => setSettings({ ...settings, model: event.target.value })}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-900"
-              >
-                <option value="qwen2.5vl:3b">Qwen2.5-VL 3B - leve com visao</option>
-                <option value="moondream">Moondream - muito leve com visao</option>
-                <option value="gemma3:4b">Gemma 3 4B - leve com visao</option>
-                <option value="qwen2.5vl:7b">Qwen2.5-VL 7B - melhor qualidade</option>
-              </select>
+              <div className="w-full rounded-xl border border-slate-200 bg-slate-100 p-3 text-sm font-black text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                Qwen2.5-VL 3B - leve com visao
+              </div>
+              <p className="mt-1 text-[10px] font-bold uppercase text-slate-400">Modelo padrao instalado pelo SIGOP</p>
             </div>
           </div>
 
