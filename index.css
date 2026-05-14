@@ -1,0 +1,61 @@
+@import '@fontsource/public-sans/latin.css';
+@import '@fontsource/public-sans/latin-ext.css';
+@import 'material-symbols/outlined.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.icon-fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.bg-engineering-grid {
+  background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.dark .bg-engineering-grid {
+  background-image: radial-gradient(#1f2937 1px, transparent 1px);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body,
+  #root,
+  main,
+  .flex.h-screen {
+    margin: 0;
+    padding: 0;
+    background: white;
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+  }
+
+  aside,
+  header,
+  nav,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 0;
+  }
+}
