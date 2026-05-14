@@ -5,6 +5,8 @@ import {
   chatWithLocalAi,
   checkOllama,
   exportKnowledgePack,
+  getTextModel,
+  getVisionModel,
   loadAiSettings,
   loadKnowledgePack,
   stripDataUrlPrefix,
@@ -143,7 +145,9 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const knowledge = useMemo(() => loadKnowledgePack(), [open, messages.length]);
   const textSections = documentContext.sections.filter(section => section.type !== 'photos');
   const photos = getPhotos(documentContext.sections);
-  const imageLimit = getImageLimit(settings.model);
+  const textModel = getTextModel(settings);
+  const visionModel = getVisionModel(settings);
+  const imageLimit = getImageLimit(visionModel);
   const selectedPhoto = photos[selectedPhotoIndex] || photos[0];
 
   useEffect(() => {
@@ -167,7 +171,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         await checkOllama(settings);
         if (!cancelled) {
           setStatus('online');
-          setStatusMessage(`IA local conectada: ${settings.model}`);
+          setStatusMessage(`IA local conectada. Texto: ${textModel} | Fotos: ${visionModel}`);
         }
       } catch (err: any) {
         if (!cancelled) {
@@ -188,18 +192,19 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const buildMessages = async (
     instruction: string,
     includeImage = false,
-    history: AiChatMessage[] = []
+    history: AiChatMessage[] = [],
+    modelName = includeImage ? visionModel : textModel
   ): Promise<AiChatMessage[]> => {
     let imagePayload: string[] | undefined;
     if (includeImage && selectedPhoto?.url) {
       addProgress('Reduzindo imagem para modo economico.');
-      imagePayload = [await prepareImageForAi(selectedPhoto.url, getAiImageSize(settings.model))];
+      imagePayload = [await prepareImageForAi(selectedPhoto.url, getAiImageSize(modelName))];
     }
 
     const chatHistory = includeImage ? '' : formatChatHistory(history);
-    const shortDocumentContext = buildDocumentText(documentContext).slice(0, settings.model.startsWith('moondream') ? 1200 : 6000);
+    const shortDocumentContext = buildDocumentText(documentContext).slice(0, modelName.startsWith('moondream') ? 1200 : 6000);
 
-    if (settings.model.startsWith('moondream')) {
+    if (modelName.startsWith('moondream')) {
       return [
         { role: 'system', content: SMALL_VISION_SYSTEM_PROMPT },
         {
@@ -231,12 +236,14 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     setProgressSteps([]);
     addProgress('Preparando solicitacao.');
     const previousMessages = messages.slice(-6);
+    const activeModel = includeImage ? visionModel : textModel;
     setMessages(current => [...current, { role: 'user', content: instruction }]);
     try {
       if (includeImage) addProgress(`Analisando foto ${selectedPhotoIndex + 1} de ${photos.length}.`);
-      const requestMessages = await buildMessages(instruction, includeImage, previousMessages);
+      addProgress(`Modelo em uso: ${activeModel}.`);
+      const requestMessages = await buildMessages(instruction, includeImage, previousMessages, activeModel);
       addProgress('Aguardando resposta da IA local.');
-      const response = await chatWithLocalAi(requestMessages, settings, controller.signal);
+      const response = await chatWithLocalAi(requestMessages, settings, controller.signal, activeModel);
       addProgress('Resposta recebida.');
       setMessages(current => [...current, { role: 'assistant', content: response }]);
       setProposal(response);
@@ -312,7 +319,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
         {photos.length > imageLimit && (
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs font-bold text-blue-900">
-            Para proteger computadores com pouca memoria, o modelo {settings.model} analisara uma foto selecionada por vez em modo economico.
+            Para proteger computadores com pouca memoria, o modelo {visionModel} analisara uma foto selecionada por vez em modo economico.
           </div>
         )}
 

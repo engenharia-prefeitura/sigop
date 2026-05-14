@@ -2,7 +2,8 @@
 setlocal
 title SIGOP - Instalador do Assistente IA Local
 
-set "MODEL=qwen2.5vl:3b"
+set "VISION_MODEL=moondream"
+set "TEXT_MODEL=qwen2.5:0.5b"
 set "SCRIPT_URL=https://engenharia-prefeitura.github.io/sigop/ai/install_sigop_ai_assistant.ps1"
 set "SCRIPT_DIR=%LOCALAPPDATA%\SIGOP\AI"
 set "SCRIPT_PATH=%SCRIPT_DIR%\install_sigop_ai_assistant.ps1"
@@ -12,11 +13,14 @@ echo ============================================================
 echo  SIGOP - Instalador do Assistente IA Local
 echo ============================================================
 echo.
+echo Modelo para fotos: %VISION_MODEL%
+echo Modelo para texto: %TEXT_MODEL%
+echo.
 echo Este instalador vai:
 echo  1. Verificar ou instalar o Ollama
 echo  2. Iniciar o Ollama local
 echo  3. Criar a ponte local do SIGOP
-echo  4. Baixar o modelo %MODEL%
+echo  4. Baixar os modelos selecionados
 echo.
 echo O download do modelo pode demorar na primeira vez.
 echo.
@@ -36,7 +40,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" -Model "%MODEL%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" -Model "%VISION_MODEL%" -TextModel "%TEXT_MODEL%"
 
 if errorlevel 1 (
   echo.

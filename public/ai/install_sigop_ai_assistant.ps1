@@ -1,5 +1,6 @@
 param(
-  [string]$Model = "qwen2.5vl:3b"
+  [string]$Model = "moondream",
+  [string]$TextModel = "qwen2.5:0.5b"
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,7 +9,8 @@ $bridgeDir = Join-Path $env:LOCALAPPDATA "SIGOP\AI"
 $bridgePath = Join-Path $bridgeDir "sigop_ollama_bridge.ps1"
 
 Write-Host "SIGOP - Instalador do Assistente IA Local" -ForegroundColor Cyan
-Write-Host "Modelo selecionado: $Model" -ForegroundColor Cyan
+Write-Host "Modelo para fotos: $Model" -ForegroundColor Cyan
+Write-Host "Modelo para texto: $TextModel" -ForegroundColor Cyan
 
 function Test-Command {
   param([string]$Name)
@@ -101,11 +103,14 @@ if (-not (Wait-Bridge)) {
   exit 1
 }
 
-Write-Host "Baixando modelo $Model. Isso pode demorar na primeira vez..." -ForegroundColor Yellow
-ollama pull $Model
+$modelsToInstall = @($Model, $TextModel) | Where-Object { $_ -and $_.Trim() } | Select-Object -Unique
+foreach ($modelToInstall in $modelsToInstall) {
+  Write-Host "Baixando modelo $modelToInstall. Isso pode demorar na primeira vez..." -ForegroundColor Yellow
+  ollama pull $modelToInstall
+}
 
 Write-Host ""
 Write-Host "Assistente IA Local pronto para uso no SIGOP." -ForegroundColor Green
-Write-Host "Modelo instalado: $Model" -ForegroundColor Green
+Write-Host "Modelos instalados: $($modelsToInstall -join ', ')" -ForegroundColor Green
 Write-Host "Endpoint: http://localhost:11435" -ForegroundColor Green
 Read-Host "Pressione Enter para finalizar"

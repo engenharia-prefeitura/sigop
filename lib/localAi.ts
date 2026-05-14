@@ -9,6 +9,8 @@ export interface AiChatMessage {
 export interface AiSettings {
   endpoint: string;
   model: string;
+  textModel?: string;
+  visionModel?: string;
 }
 
 export interface AiKnowledgePack {
@@ -23,10 +25,14 @@ export interface AiKnowledgePack {
 
 const SETTINGS_KEY = 'sigop_ai_settings';
 const KNOWLEDGE_KEY = 'sigop_ai_knowledge_pack';
+export const DEFAULT_TEXT_MODEL = 'qwen2.5:0.5b';
+export const DEFAULT_VISION_MODEL = 'moondream';
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
   endpoint: 'http://localhost:11435',
-  model: 'qwen2.5vl:3b'
+  model: DEFAULT_VISION_MODEL,
+  textModel: DEFAULT_TEXT_MODEL,
+  visionModel: DEFAULT_VISION_MODEL
 };
 
 export const DEFAULT_KNOWLEDGE_PACK: AiKnowledgePack = {
@@ -56,6 +62,11 @@ export const loadAiSettings = (): AiSettings => {
     if (parsed.endpoint === 'http://localhost:11434') {
       parsed.endpoint = DEFAULT_AI_SETTINGS.endpoint;
     }
+    if (!parsed.visionModel) parsed.visionModel = parsed.model || DEFAULT_VISION_MODEL;
+    if (!parsed.textModel) {
+      parsed.textModel = isVisionOnlyModel(parsed.model) ? DEFAULT_TEXT_MODEL : (parsed.model || DEFAULT_TEXT_MODEL);
+    }
+    parsed.model = parsed.visionModel || parsed.model || DEFAULT_VISION_MODEL;
     saveAiSettings(parsed);
     return parsed;
   } catch {
@@ -117,6 +128,10 @@ export const addApprovedExample = (example: string) => {
 };
 
 export const stripDataUrlPrefix = (image: string) => image.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+export const isVisionOnlyModel = (model = '') => model.startsWith('moondream');
+export const getTextModel = (settings = loadAiSettings()) => settings.textModel || (isVisionOnlyModel(settings.model) ? DEFAULT_TEXT_MODEL : settings.model);
+export const getVisionModel = (settings = loadAiSettings()) => settings.visionModel || settings.model || DEFAULT_VISION_MODEL;
+export const getSelectedAiModels = (settings = loadAiSettings()) => Array.from(new Set([getVisionModel(settings), getTextModel(settings)].filter(Boolean)));
 
 type LocalNetworkRequestInit = RequestInit & {
   targetAddressSpace?: 'local' | 'loopback';
@@ -155,14 +170,15 @@ export const checkOllama = async (settings = loadAiSettings()) => {
 
 export const pullModel = async (
   settings = loadAiSettings(),
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  modelName = settings.model
 ) => {
   let response: Response;
   try {
     response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: settings.model, stream: true })
+      body: JSON.stringify({ name: modelName, stream: true })
     });
   } catch (err) {
     throw new Error(formatLocalNetworkError(err));
@@ -199,7 +215,8 @@ export const pullModel = async (
 export const chatWithLocalAi = async (
   messages: AiChatMessage[],
   settings = loadAiSettings(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  modelName = settings.model
 ): Promise<string> => {
   let response: Response;
   try {
@@ -208,10 +225,10 @@ export const chatWithLocalAi = async (
       headers: { 'Content-Type': 'application/json' },
       signal,
       body: JSON.stringify({
-        model: settings.model,
+        model: modelName,
         stream: false,
         messages,
-        options: getModelOptions(settings.model)
+        options: getModelOptions(modelName)
       })
     });
   } catch (err: any) {
@@ -255,6 +272,17 @@ const getModelOptions = (model: string) => {
       temperature: 0.1,
       repeat_penalty: 1.35,
       repeat_last_n: 64
+    };
+  }
+
+  if (model.startsWith('qwen2.5:0.5b') || model.startsWith('smollm2:360m')) {
+    return {
+      num_predict: 220,
+      num_ctx: 2048,
+      num_thread: 2,
+      temperature: 0.2,
+      repeat_penalty: 1.18,
+      repeat_last_n: 96
     };
   }
 
@@ -333,6 +361,10 @@ const formatLocalAiError = (details: string) => {
     const memoryMatch = rawError.match(/model requires more system memory \(([^)]+)\) than is available \(([^)]+)\)/i);
     if (memoryMatch) {
       return `Este modelo exige mais memoria livre (${memoryMatch[1]}) do que o computador tem disponivel agora (${memoryMatch[2]}). Escolha um modelo mais leve em Assistente IA ou feche programas pesados e tente novamente.`;
+    }
+    const missingModelMatch = rawError.match(/model ['"]?([^'"\n]+)['"]? not found/i);
+    if (missingModelMatch) {
+      return `O modelo ${missingModelMatch[1]} ainda nao foi baixado neste computador. Abra Assistente IA, baixe o instalador unico atualizado e execute para instalar os modelos de foto e texto.`;
     }
     return rawError;
   } catch {
