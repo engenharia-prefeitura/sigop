@@ -175,10 +175,7 @@ export const chatWithLocalAi = async (
       model: settings.model,
       stream: false,
       messages,
-      options: {
-        num_predict: settings.model.startsWith('moondream') ? 220 : 360,
-        temperature: 0.2
-      }
+      options: getModelOptions(settings.model)
     })
   });
 
@@ -188,7 +185,96 @@ export const chatWithLocalAi = async (
   }
 
   const data = await response.json();
-  return data?.message?.content || '';
+  const text = normalizeAiResponse(extractAiResponseText(data));
+
+  if (!text) {
+    throw new Error('A IA local respondeu, mas nao enviou texto aproveitavel. Tente novamente com uma pergunta mais curta ou escolha outro modelo.');
+  }
+
+  if (isDegenerateResponse(text)) {
+    throw new Error('A IA local gerou uma resposta repetitiva ou incompleta. Em computador muito fraco, tente uma foto por vez, reduza a pergunta ou selecione um modelo mais estavel.');
+  }
+
+  return text;
+};
+
+const getModelOptions = (model: string) => {
+  if (model.startsWith('moondream')) {
+    return {
+      num_predict: 90,
+      num_ctx: 1024,
+      num_thread: 2,
+      temperature: 0.1,
+      repeat_penalty: 1.35,
+      repeat_last_n: 64
+    };
+  }
+
+  if (model.startsWith('gemma3')) {
+    return {
+      num_predict: 260,
+      temperature: 0.2,
+      repeat_penalty: 1.18,
+      repeat_last_n: 128
+    };
+  }
+
+  return {
+    num_predict: 360,
+    temperature: 0.2,
+    repeat_penalty: 1.15,
+    repeat_last_n: 128
+  };
+};
+
+const extractContentText = (content: any): string => {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map(item => {
+        if (typeof item === 'string') return item;
+        if (typeof item?.text === 'string') return item.text;
+        if (typeof item?.content === 'string') return item.content;
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+};
+
+const extractAiResponseText = (data: any): string => {
+  return [
+    extractContentText(data?.message?.content),
+    extractContentText(data?.response),
+    extractContentText(data?.content),
+    extractContentText(data?.text),
+    extractContentText(data?.output),
+    extractContentText(data?.choices?.[0]?.message?.content),
+    extractContentText(data?.choices?.[0]?.text)
+  ].find(text => text.trim()) || '';
+};
+
+const normalizeAiResponse = (text: string) => text
+  .replace(/\u0000/g, '')
+  .replace(/[ \t]+\n/g, '\n')
+  .replace(/\n{4,}/g, '\n\n')
+  .trim();
+
+const isDegenerateResponse = (text: string) => {
+  const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/^(yes|no|sim|nao|ok)\.?$/i.test(normalized.trim())) return true;
+  if (/\b([a-z0-9]{1,10})(?:[\s.,;:!?-]+\1){8,}\b/i.test(normalized)) return true;
+
+  const words = normalized.match(/[a-z0-9]{1,20}/g) || [];
+  if (words.length < 24) return false;
+
+  const counts = words.reduce<Record<string, number>>((acc, word) => {
+    acc[word] = (acc[word] || 0) + 1;
+    return acc;
+  }, {});
+  const mostRepeated = Math.max(...Object.values(counts));
+  return mostRepeated / words.length > 0.42;
 };
 
 const formatLocalAiError = (details: string) => {

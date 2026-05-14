@@ -38,6 +38,7 @@ const SMALL_VISION_SYSTEM_PROMPT = `
 Responda sempre em portugues do Brasil.
 Analise apenas a imagem enviada e a legenda.
 Se nao conseguir identificar algo, diga "nao foi possivel confirmar pela imagem".
+Use frases curtas. Nao repita palavras. Maximo de 6 linhas.
 Use este formato:
 Observacao:
 Possiveis indicios:
@@ -87,6 +88,12 @@ const getImageLimit = (model: string) => {
 
 const getAiImageSize = (model: string) => model.startsWith('moondream') ? 384 : 512;
 const REQUEST_TIMEOUT_MS = 180000;
+
+const formatChatHistory = (history: AiChatMessage[]) => history
+  .filter(message => message.role !== 'system' && message.content.trim())
+  .slice(-6)
+  .map(message => `${message.role === 'assistant' ? 'IA' : 'Usuario'}: ${message.content}`)
+  .join('\n\n');
 
 const prepareImageForAi = async (dataUrl: string, maxSize: number): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -178,12 +185,19 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     setProgressSteps(steps => [...steps, `${new Date().toLocaleTimeString('pt-BR')} - ${step}`]);
   };
 
-  const buildMessages = async (instruction: string, includeImage = false): Promise<AiChatMessage[]> => {
+  const buildMessages = async (
+    instruction: string,
+    includeImage = false,
+    history: AiChatMessage[] = []
+  ): Promise<AiChatMessage[]> => {
     let imagePayload: string[] | undefined;
     if (includeImage && selectedPhoto?.url) {
       addProgress('Reduzindo imagem para modo economico.');
       imagePayload = [await prepareImageForAi(selectedPhoto.url, getAiImageSize(settings.model))];
     }
+
+    const chatHistory = includeImage ? '' : formatChatHistory(history);
+    const shortDocumentContext = buildDocumentText(documentContext).slice(0, settings.model.startsWith('moondream') ? 1200 : 6000);
 
     if (settings.model.startsWith('moondream')) {
       return [
@@ -191,8 +205,8 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         {
           role: 'user',
           content: includeImage
-            ? `Legenda da foto: ${selectedPhoto?.caption || 'sem legenda'}\nTarefa: ${instruction}\nResponda em portugues, no formato pedido.`
-            : `Tarefa: ${instruction}\nResponda em portugues, curto e objetivo.`
+            ? `Legenda da foto: ${selectedPhoto?.caption || 'sem legenda'}\nTarefa: ${instruction}\nResponda em portugues, no formato pedido, sem repeticao.`
+            : `Contexto resumido:\n${shortDocumentContext}\n\n${chatHistory ? `Conversa recente:\n${chatHistory}\n\n` : ''}Tarefa: ${instruction}\nResponda em portugues, curto e objetivo, sem repeticao.`
           ,
           images: imagePayload
         }
@@ -202,7 +216,8 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     return [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'system', content: buildKnowledgeContext(knowledge) || 'Sem pacote de conhecimento local adicional.' },
-      { role: 'user', content: `CONTEXTO RESUMIDO DO DOCUMENTO:\n${buildDocumentText(documentContext).slice(0, 6000)}` },
+      { role: 'user', content: `CONTEXTO RESUMIDO DO DOCUMENTO:\n${shortDocumentContext}` },
+      ...(chatHistory ? [{ role: 'user' as const, content: `CONVERSA RECENTE:\n${chatHistory}` }] : []),
       { role: 'user', content: instruction, images: imagePayload }
     ];
   };
@@ -215,10 +230,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     setProposal('');
     setProgressSteps([]);
     addProgress('Preparando solicitacao.');
+    const previousMessages = messages.slice(-6);
     setMessages(current => [...current, { role: 'user', content: instruction }]);
     try {
       if (includeImage) addProgress(`Analisando foto ${selectedPhotoIndex + 1} de ${photos.length}.`);
-      const requestMessages = await buildMessages(instruction, includeImage);
+      const requestMessages = await buildMessages(instruction, includeImage, previousMessages);
       addProgress('Aguardando resposta da IA local.');
       const response = await chatWithLocalAi(requestMessages, settings, controller.signal);
       addProgress('Resposta recebida.');
@@ -230,8 +246,13 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         setStatusMessage('A IA demorou demais. Tente Moondream, escolha uma foto simples ou feche programas pesados.');
       } else {
         addProgress('Falha ao concluir a resposta.');
-        setStatus('offline');
-        setStatusMessage(err.message || 'Falha ao acessar a IA local.');
+        const message = err.message || 'Falha ao acessar a IA local.';
+        setStatusMessage(message);
+        if (message.startsWith('A IA local respondeu') || message.startsWith('A IA local gerou')) {
+          setMessages(current => [...current, { role: 'assistant', content: message }]);
+        } else {
+          setStatus('offline');
+        }
       }
     } finally {
       window.clearTimeout(timeoutId);
