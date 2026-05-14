@@ -34,6 +34,17 @@ Quando sugerir texto para inserir no documento, entregue pronto para uso e sem M
 Nunca altere nada automaticamente; o usuario aprova antes.
 `;
 
+const SMALL_VISION_SYSTEM_PROMPT = `
+Responda sempre em portugues do Brasil.
+Analise apenas a imagem enviada e a legenda.
+Se nao conseguir identificar algo, diga "nao foi possivel confirmar pela imagem".
+Use este formato:
+Observacao:
+Possiveis indicios:
+Perguntas ao tecnico:
+Texto sugerido:
+`;
+
 const htmlToPlainText = (html: string) => {
   const div = document.createElement('div');
   div.innerHTML = html || '';
@@ -174,6 +185,20 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       imagePayload = [await prepareImageForAi(selectedPhoto.url, getAiImageSize(settings.model))];
     }
 
+    if (settings.model.startsWith('moondream')) {
+      return [
+        { role: 'system', content: SMALL_VISION_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: includeImage
+            ? `Legenda da foto: ${selectedPhoto?.caption || 'sem legenda'}\nTarefa: ${instruction}\nResponda em portugues, no formato pedido.`
+            : `Tarefa: ${instruction}\nResponda em portugues, curto e objetivo.`
+          ,
+          images: imagePayload
+        }
+      ];
+    }
+
     return [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'system', content: buildKnowledgeContext(knowledge) || 'Sem pacote de conhecimento local adicional.' },
@@ -300,7 +325,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         <div className="grid grid-cols-2 gap-2">
           <button
             disabled={loading || status !== 'online'}
-            onClick={() => runAssistant(`Analise somente a foto selecionada (${selectedPhoto?.caption || 'sem legenda'}) e gere observacoes tecnicas curtas, possiveis manifestacoes patologicas aparentes, hipoteses provaveis e perguntas complementares. Use cautela tecnica e nao invente dados.`, true)}
+            onClick={() => runAssistant(`Descreva tecnicamente a foto. Aponte somente indicios visuais, sem diagnostico definitivo. Gere perguntas complementares e um texto curto para laudo.`, true)}
             className="rounded-xl border border-slate-200 p-3 text-left text-xs font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
           >
             Analisar Foto
