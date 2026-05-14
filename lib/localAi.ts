@@ -174,7 +174,11 @@ export const chatWithLocalAi = async (
     body: JSON.stringify({
       model: settings.model,
       stream: false,
-      messages
+      messages,
+      options: {
+        num_predict: settings.model.startsWith('moondream') ? 220 : 360,
+        temperature: 0.2
+      }
     })
   });
 

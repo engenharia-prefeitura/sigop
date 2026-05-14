@@ -75,6 +75,7 @@ const getImageLimit = (model: string) => {
 };
 
 const getAiImageSize = (model: string) => model.startsWith('moondream') ? 384 : 512;
+const REQUEST_TIMEOUT_MS = 180000;
 
 const prepareImageForAi = async (dataUrl: string, maxSize: number): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -183,6 +184,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
   const runAssistant = async (instruction: string, includeImage = false) => {
     const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     abortRef.current = controller;
     setLoading(true);
     setProposal('');
@@ -191,21 +193,23 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     setMessages(current => [...current, { role: 'user', content: instruction }]);
     try {
       if (includeImage) addProgress(`Analisando foto ${selectedPhotoIndex + 1} de ${photos.length}.`);
+      const requestMessages = await buildMessages(instruction, includeImage);
       addProgress('Aguardando resposta da IA local.');
-      const response = await chatWithLocalAi(await buildMessages(instruction, includeImage), settings, controller.signal);
+      const response = await chatWithLocalAi(requestMessages, settings, controller.signal);
       addProgress('Resposta recebida.');
       setMessages(current => [...current, { role: 'assistant', content: response }]);
       setProposal(response);
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        addProgress('Solicitacao cancelada pelo usuario.');
-        setStatusMessage('Solicitacao cancelada.');
+        addProgress('Solicitacao interrompida por cancelamento ou limite de tempo.');
+        setStatusMessage('A IA demorou demais. Tente Moondream, escolha uma foto simples ou feche programas pesados.');
       } else {
         addProgress('Falha ao concluir a resposta.');
         setStatus('offline');
         setStatusMessage(err.message || 'Falha ao acessar a IA local.');
       }
     } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
       abortRef.current = null;
     }
@@ -327,7 +331,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         {(progressSteps.length > 0 || loading) && (
           <div className="rounded-xl border border-slate-200 bg-slate-50">
             <button onClick={() => setProgressOpen(!progressOpen)} className="flex w-full items-center justify-between px-4 py-3 text-left">
-              <span className="text-xs font-black uppercase text-slate-600">{loading ? `Processando (${elapsedSeconds}s)` : 'Etapas da ultima solicitacao'}</span>
+              <span className="text-xs font-black uppercase text-slate-600">{loading ? `Processando (${elapsedSeconds}s / max. 180s)` : 'Etapas da ultima solicitacao'}</span>
               <span className="material-symbols-outlined text-[18px] text-slate-400">{progressOpen ? 'expand_less' : 'expand_more'}</span>
             </button>
             {progressOpen && (
