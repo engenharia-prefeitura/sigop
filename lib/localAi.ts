@@ -164,11 +164,13 @@ export const pullModel = async (
 
 export const chatWithLocalAi = async (
   messages: AiChatMessage[],
-  settings = loadAiSettings()
+  settings = loadAiSettings(),
+  signal?: AbortSignal
 ): Promise<string> => {
   const response = await fetch(`${settings.endpoint.replace(/\/$/, '')}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal,
     body: JSON.stringify({
       model: settings.model,
       stream: false,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   addApprovedExample,
   buildKnowledgeContext,
@@ -74,6 +74,31 @@ const getImageLimit = (model: string) => {
   return 3;
 };
 
+const getAiImageSize = (model: string) => model.startsWith('moondream') ? 384 : 512;
+
+const prepareImageForAi = async (dataUrl: string, maxSize: number): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * scale));
+      const height = Math.max(1, Math.round(image.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        reject(new Error('Nao foi possivel preparar a imagem para IA.'));
+        return;
+      }
+      context.drawImage(image, 0, 0, width, height);
+      resolve(stripDataUrlPrefix(canvas.toDataURL('image/jpeg', 0.45)));
+    };
+    image.onerror = () => reject(new Error('Nao foi possivel carregar a imagem selecionada.'));
+    image.src = dataUrl;
+  });
+};
+
 const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   open,
   onClose,
@@ -89,12 +114,29 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const [loading, setLoading] = useState(false);
   const [proposal, setProposal] = useState('');
   const [selectedSectionId, setSelectedSectionId] = useState<number | ''>('');
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
+  const [progressOpen, setProgressOpen] = useState(true);
+  const [progressSteps, setProgressSteps] = useState<string[]>([]);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const settings = useMemo(() => loadAiSettings(), [open]);
   const knowledge = useMemo(() => loadKnowledgePack(), [open, messages.length]);
   const textSections = documentContext.sections.filter(section => section.type !== 'photos');
   const photos = getPhotos(documentContext.sections);
   const imageLimit = getImageLimit(settings.model);
+  const selectedPhoto = photos[selectedPhotoIndex] || photos[0];
+
+  useEffect(() => {
+    if (selectedPhotoIndex >= photos.length) setSelectedPhotoIndex(0);
+  }, [photos.length, selectedPhotoIndex]);
+
+  useEffect(() => {
+    if (!loading) return;
+    setElapsedSeconds(0);
+    const timer = window.setInterval(() => setElapsedSeconds(seconds => seconds + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,37 +162,58 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     return () => { cancelled = true; };
   }, [open]);
 
-  const buildMessages = (instruction: string, includeImages = false): AiChatMessage[] => {
-    const imagePayload = includeImages
-      ? photos.slice(0, imageLimit).map((photo: any) => stripDataUrlPrefix(photo.url))
-      : undefined;
+  const addProgress = (step: string) => {
+    setProgressSteps(steps => [...steps, `${new Date().toLocaleTimeString('pt-BR')} - ${step}`]);
+  };
+
+  const buildMessages = async (instruction: string, includeImage = false): Promise<AiChatMessage[]> => {
+    let imagePayload: string[] | undefined;
+    if (includeImage && selectedPhoto?.url) {
+      addProgress('Reduzindo imagem para modo economico.');
+      imagePayload = [await prepareImageForAi(selectedPhoto.url, getAiImageSize(settings.model))];
+    }
 
     return [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'system', content: buildKnowledgeContext(knowledge) || 'Sem pacote de conhecimento local adicional.' },
-      { role: 'user', content: `CONTEXTO DO DOCUMENTO:\n${buildDocumentText(documentContext)}` },
+      { role: 'user', content: `CONTEXTO RESUMIDO DO DOCUMENTO:\n${buildDocumentText(documentContext).slice(0, 6000)}` },
       { role: 'user', content: instruction, images: imagePayload }
     ];
   };
 
-  const runAssistant = async (instruction: string, includeImages = false) => {
+  const runAssistant = async (instruction: string, includeImage = false) => {
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setProposal('');
+    setProgressSteps([]);
+    addProgress('Preparando solicitacao.');
+    setMessages(current => [...current, { role: 'user', content: instruction }]);
     try {
-      const response = await chatWithLocalAi(buildMessages(instruction, includeImages), settings);
-      const nextMessages: AiChatMessage[] = [
-        ...messages,
-        { role: 'user', content: instruction },
-        { role: 'assistant', content: response }
-      ];
-      setMessages(nextMessages);
+      if (includeImage) addProgress(`Analisando foto ${selectedPhotoIndex + 1} de ${photos.length}.`);
+      addProgress('Aguardando resposta da IA local.');
+      const response = await chatWithLocalAi(await buildMessages(instruction, includeImage), settings, controller.signal);
+      addProgress('Resposta recebida.');
+      setMessages(current => [...current, { role: 'assistant', content: response }]);
       setProposal(response);
     } catch (err: any) {
-      setStatus('offline');
-      setStatusMessage(err.message || 'Falha ao acessar a IA local.');
+      if (err?.name === 'AbortError') {
+        addProgress('Solicitacao cancelada pelo usuario.');
+        setStatusMessage('Solicitacao cancelada.');
+      } else {
+        addProgress('Falha ao concluir a resposta.');
+        setStatus('offline');
+        setStatusMessage(err.message || 'Falha ao acessar a IA local.');
+      }
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
+  };
+
+  const cancelRequest = () => {
+    abortRef.current?.abort();
+    setLoading(false);
   };
 
   const sendChat = async () => {
@@ -199,17 +262,44 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
         {photos.length > imageLimit && (
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs font-bold text-blue-900">
-            Para proteger computadores com pouca memoria, o modelo {settings.model} analisara {imageLimit} foto(s) por vez. Reduza as fotos no documento ou use perguntas por partes para analisar o restante.
+            Para proteger computadores com pouca memoria, o modelo {settings.model} analisara uma foto selecionada por vez em modo economico.
+          </div>
+        )}
+
+        {photos.length > 0 && (
+          <div className="rounded-xl border border-slate-200 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase text-slate-400">Foto para analise</span>
+              <span className="text-[10px] font-bold text-slate-400">{selectedPhotoIndex + 1} de {photos.length}</span>
+            </div>
+            <div className="flex gap-3">
+              <div className="h-20 w-28 flex-none overflow-hidden rounded-lg bg-slate-100">
+                {selectedPhoto?.url && <img src={selectedPhoto.url} className="h-full w-full object-cover" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <select
+                  value={selectedPhotoIndex}
+                  onChange={event => setSelectedPhotoIndex(Number(event.target.value))}
+                  disabled={loading}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold"
+                >
+                  {photos.map((photo: any, index: number) => (
+                    <option key={photo.id || index} value={index}>Foto {index + 1} - {photo.caption || 'Sem legenda'}</option>
+                  ))}
+                </select>
+                <p className="mt-2 line-clamp-2 text-xs text-slate-500">{selectedPhoto?.caption || 'Sem legenda'}</p>
+              </div>
+            </div>
           </div>
         )}
 
         <div className="grid grid-cols-2 gap-2">
           <button
             disabled={loading || status !== 'online'}
-            onClick={() => runAssistant('Analise as fotos anexadas e gere observacoes tecnicas, possiveis manifestacoes patologicas, hipoteses provaveis e perguntas complementares. Use cautela tecnica.', true)}
+            onClick={() => runAssistant(`Analise somente a foto selecionada (${selectedPhoto?.caption || 'sem legenda'}) e gere observacoes tecnicas curtas, possiveis manifestacoes patologicas aparentes, hipoteses provaveis e perguntas complementares. Use cautela tecnica e nao invente dados.`, true)}
             className="rounded-xl border border-slate-200 p-3 text-left text-xs font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
           >
-            Analisar Fotos
+            Analisar Foto
           </button>
           <button
             disabled={loading || status !== 'online'}
@@ -234,6 +324,43 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           </button>
         </div>
 
+        {(progressSteps.length > 0 || loading) && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50">
+            <button onClick={() => setProgressOpen(!progressOpen)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+              <span className="text-xs font-black uppercase text-slate-600">{loading ? `Processando (${elapsedSeconds}s)` : 'Etapas da ultima solicitacao'}</span>
+              <span className="material-symbols-outlined text-[18px] text-slate-400">{progressOpen ? 'expand_less' : 'expand_more'}</span>
+            </button>
+            {progressOpen && (
+              <div className="border-t border-slate-200 px-4 py-3">
+                <p className="mb-2 text-[10px] font-bold uppercase text-slate-400">Progresso operacional, nao raciocinio interno da IA.</p>
+                <div className="max-h-28 space-y-1 overflow-y-auto text-xs text-slate-600">
+                  {progressSteps.map((step, index) => <p key={index}>{step}</p>)}
+                </div>
+                {loading && (
+                  <button onClick={cancelRequest} className="mt-3 rounded-lg bg-red-600 px-3 py-2 text-xs font-black uppercase text-white hover:bg-red-700">
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {messages.length > 0 && (
+          <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+            <h3 className="text-[10px] font-black uppercase text-slate-400">Chat</h3>
+            <div className="max-h-72 space-y-3 overflow-y-auto">
+              {messages.map((message, index) => (
+                <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed ${message.role === 'user' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-800'}`}>
+                    {message.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="rounded-xl border border-slate-200">
           <textarea
             className="h-24 w-full resize-none rounded-t-xl border-0 p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
@@ -242,7 +369,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
             onChange={event => setInput(event.target.value)}
           />
           <div className="flex items-center justify-between border-t border-slate-100 p-2">
-            <span className="text-[10px] font-bold uppercase text-slate-400">{photos.length} foto(s) no documento · limite IA: {imageLimit}</span>
+            <span className="text-[10px] font-bold uppercase text-slate-400">{photos.length} foto(s) no documento · modo economico</span>
             <button
               disabled={loading || status !== 'online' || !input.trim()}
               onClick={sendChat}
