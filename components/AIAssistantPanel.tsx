@@ -37,6 +37,7 @@ Nunca altere nada automaticamente; o usuario aprova antes.
 Nao cumprimente. Nao explique a estrutura do documento. Nao use termos inventados como "lacinha".
 Se a tarefa for revisar, aponte problemas concretos do texto recebido e perguntas objetivas para o tecnico responder.
 Se faltar dado, diga exatamente qual dado falta. Nao diga que esta tudo bem organizado quando existirem lacunas.
+Na revisao de texto, nao afirme que analisou imagens. Use apenas texto, descricao e legendas cadastradas.
 `;
 
 const SMALL_VISION_SYSTEM_PROMPT = `
@@ -57,16 +58,30 @@ const htmlToPlainText = (html: string) => {
   return div.textContent || div.innerText || '';
 };
 
+const isGenericPhotoCaption = (caption: string, index: number) => {
+  const normalized = caption.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return !normalized
+    || normalized === 'sem legenda'
+    || normalized === `foto ${index + 1}`
+    || normalized === `registro fotografico ${index + 1}`
+    || /^foto\s*#?\s*\d+$/.test(normalized)
+    || /^imagem\s*#?\s*\d+$/.test(normalized);
+};
+
 const buildDocumentText = (context: AIAssistantPanelProps['documentContext']) => {
   const sectionText = context.sections
     .filter(section => section.type !== 'photos')
     .map(section => `${section.title}:\n${htmlToPlainText(section.content || '')}`)
     .join('\n\n');
 
-  const photoCaptions = context.sections
+  const photoItems = context.sections
     .filter(section => section.type === 'photos')
-    .flatMap(section => section.items || [])
-    .map((photo: any, index: number) => `Foto ${index + 1}: ${photo.caption || 'Sem legenda'}`)
+    .flatMap(section => section.items || []);
+
+  const photoCaptions = photoItems
+    .map((photo: any, index: number) => ({ caption: String(photo.caption || ''), index }))
+    .filter(item => !isGenericPhotoCaption(item.caption, item.index))
+    .map(item => `Foto ${item.index + 1}: ${item.caption.trim()}`)
     .join('\n');
 
   return [
@@ -75,7 +90,8 @@ const buildDocumentText = (context: AIAssistantPanelProps['documentContext']) =>
     `Descricao: ${context.description || 'Sem descricao'}`,
     `Data do evento: ${context.eventDate || 'Nao informada'}`,
     sectionText ? `Texto atual:\n${sectionText}` : '',
-    photoCaptions ? `Fotos e legendas:\n${photoCaptions}` : ''
+    photoItems.length ? `Registros fotograficos no documento: ${photoItems.length} foto(s). As imagens nao foram analisadas nesta revisao de texto.` : '',
+    photoCaptions ? `Legendas cadastradas pelo usuario:\n${photoCaptions}` : ''
   ].filter(Boolean).join('\n\n');
 };
 
@@ -112,6 +128,7 @@ Perguntas para o tecnico:
 Encaminhamentos sugeridos:
 1. [encaminhamento tecnico cauteloso]
 Resumo final: [uma frase curta].
+Regras: se apontar uma lacuna, nao escreva "nao identificada" no mesmo item. Nao diga que analisou fotos ou registros fotograficos; cite apenas legendas se elas tiverem texto tecnico. Nao diga que o documento esta bem organizado quando houver lacunas. Nao invente causa, dimensoes, responsavel ou gravidade.
 Nao cumprimente, nao explique o que e um documento, nao use Markdown com titulos grandes e nao invente dados ausentes.`;
 const CONCLUSION_INSTRUCTION = `Gere uma conclusao tecnica cautelosa para o documento em ate 2 paragrafos curtos.
 Inclua: limitacao da analise, possivel risco observado somente se constar no texto, e recomendacao de verificacao/encaminhamento.
