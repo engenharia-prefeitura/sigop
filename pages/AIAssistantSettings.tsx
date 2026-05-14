@@ -121,7 +121,7 @@ const AIAssistantSettings: React.FC = () => {
             <div>
               <h2 className="text-xl font-black text-slate-900 dark:text-white">Instalacao e Modelo</h2>
               <p className="mt-1 text-sm text-slate-500">
-                O SIGOP usa Ollama local. Se ele ja estiver instalado, o modelo pode ser baixado automaticamente por aqui.
+                O SIGOP usa uma ponte local em http://localhost:11435 para conversar com o Ollama instalado neste computador.
               </p>
             </div>
             <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${status === 'online' ? 'bg-emerald-100 text-emerald-700' : status === 'offline' ? 'bg-red-100 text-red-700' : status === 'working' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>

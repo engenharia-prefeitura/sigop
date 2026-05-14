@@ -25,7 +25,7 @@ const SETTINGS_KEY = 'sigop_ai_settings';
 const KNOWLEDGE_KEY = 'sigop_ai_knowledge_pack';
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
-  endpoint: 'http://localhost:11434',
+  endpoint: 'http://localhost:11435',
   model: 'qwen2.5vl:3b'
 };
 
@@ -52,7 +52,12 @@ export const loadAiSettings = (): AiSettings => {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_AI_SETTINGS;
-    return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
+    const parsed = { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
+    if (parsed.endpoint === 'http://localhost:11434') {
+      parsed.endpoint = DEFAULT_AI_SETTINGS.endpoint;
+      saveAiSettings(parsed);
+    }
+    return parsed;
   } catch {
     return DEFAULT_AI_SETTINGS;
   }
