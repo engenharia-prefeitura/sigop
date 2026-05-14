@@ -2,15 +2,12 @@
 setlocal
 title SIGOP - Corrigir Conexao com Ollama
 
-set "SIGOP_ORIGIN=https://engenharia-prefeitura.github.io"
-
 echo.
 echo ============================================================
 echo  SIGOP - Corrigir conexao com a IA local
 echo ============================================================
 echo.
-echo Este arquivo configura o Ollama para aceitar chamadas do site:
-echo %SIGOP_ORIGIN%
+echo Este arquivo configura o Ollama para aceitar chamadas do SIGOP.
 echo.
 echo Use quando aparecer erro de CORS no navegador.
 echo.
@@ -18,10 +15,10 @@ pause
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
-  "$origin='%SIGOP_ORIGIN%';" ^
-  "$origins=$origin + ',http://localhost,http://localhost:*,http://127.0.0.1,http://127.0.0.1:*';" ^
+  "$origins='*';" ^
   "Write-Host 'Configurando OLLAMA_ORIGINS...' -ForegroundColor Cyan;" ^
   "[Environment]::SetEnvironmentVariable('OLLAMA_ORIGINS',$origins,'User');" ^
+  "setx OLLAMA_ORIGINS $origins | Out-Null;" ^
   "$env:OLLAMA_ORIGINS=$origins;" ^
   "Write-Host 'Reiniciando Ollama...' -ForegroundColor Cyan;" ^
   "Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue;" ^

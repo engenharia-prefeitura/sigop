@@ -3,7 +3,6 @@ setlocal
 title SIGOP - Instalador do Assistente IA Local
 
 set "MODEL=qwen2.5vl:3b"
-set "SIGOP_ORIGIN=https://engenharia-prefeitura.github.io"
 
 echo.
 echo ============================================================
@@ -23,7 +22,6 @@ pause
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
   "$model='%MODEL%';" ^
-  "$origin='%SIGOP_ORIGIN%';" ^
   "function Test-Cmd($name){ return $null -ne (Get-Command $name -ErrorAction SilentlyContinue) };" ^
   "function Wait-Ollama{ for($i=0;$i -lt 30;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing 'http://localhost:11434/api/tags' -TimeoutSec 2; if($r.StatusCode -eq 200){ return $true } } catch {}; Start-Sleep -Seconds 2 }; return $false };" ^
   "Write-Host 'Verificando Ollama...' -ForegroundColor Cyan;" ^
@@ -34,8 +32,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "};" ^
   "if(-not (Test-Cmd 'ollama')){ $p=$env:LOCALAPPDATA + '\Programs\Ollama\ollama.exe'; if(Test-Path $p){ $env:Path=$env:LOCALAPPDATA + '\Programs\Ollama;' + $env:Path } };" ^
   "Write-Host 'Configurando permissao de acesso do SIGOP ao Ollama local...' -ForegroundColor Cyan;" ^
-  "$origins=$origin + ',http://localhost,http://localhost:*,http://127.0.0.1,http://127.0.0.1:*';" ^
+  "$origins='*';" ^
   "[Environment]::SetEnvironmentVariable('OLLAMA_ORIGINS',$origins,'User');" ^
+  "setx OLLAMA_ORIGINS $origins | Out-Null;" ^
   "$env:OLLAMA_ORIGINS=$origins;" ^
   "Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue;" ^
   "Write-Host 'Iniciando Ollama local...' -ForegroundColor Cyan;" ^

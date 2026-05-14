@@ -1,6 +1,5 @@
 param(
-  [string]$Model = "qwen2.5vl:3b",
-  [string]$SigopOrigin = "https://engenharia-prefeitura.github.io"
+  [string]$Model = "qwen2.5vl:3b"
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,9 +45,10 @@ if (-not (Test-Command "ollama")) {
 }
 
 Write-Host "Iniciando Ollama local..." -ForegroundColor Yellow
-$origins = "$SigopOrigin,http://localhost,http://localhost:*,http://127.0.0.1,http://127.0.0.1:*"
+$origins = "*"
 [Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", $origins, "User")
 $env:OLLAMA_ORIGINS = $origins
+setx OLLAMA_ORIGINS $origins | Out-Null
 Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 try {
