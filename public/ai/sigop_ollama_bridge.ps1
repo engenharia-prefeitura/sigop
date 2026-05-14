@@ -168,7 +168,6 @@ while ($listener.IsListening) {
       Uri = $targetUrl
       Method = $request.HttpMethod
       UseBasicParsing = $true
-      TimeoutSec = 180
     }
 
     if ($body -ne $null) {
