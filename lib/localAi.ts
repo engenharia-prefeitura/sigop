@@ -261,6 +261,7 @@ export const chatWithLocalAi = async (
   signal?: AbortSignal,
   modelName = settings.model
 ): Promise<string> => {
+  const hasImages = messages.some(message => Array.isArray(message.images) && message.images.length > 0);
   let response: Response;
   try {
     response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/api/chat`, {
@@ -272,7 +273,7 @@ export const chatWithLocalAi = async (
         stream: false,
         keep_alive: '30s',
         messages,
-        options: getModelOptions(modelName)
+        options: getModelOptions(modelName, hasImages)
       })
     });
   } catch (err: any) {
@@ -307,7 +308,7 @@ const formatLocalNetworkError = (err: unknown) => {
   return message || 'Nao foi possivel conectar a IA local neste computador.';
 };
 
-const getModelOptions = (model: string) => {
+const getModelOptions = (model: string, hasImages = false) => {
   if (model.startsWith('moondream')) {
     return {
       num_predict: 90,
@@ -331,8 +332,19 @@ const getModelOptions = (model: string) => {
   }
 
   if (model.startsWith('gemma3')) {
+    if (hasImages) {
+      return {
+        num_predict: 160,
+        num_ctx: 1024,
+        num_thread: 4,
+        temperature: 0.1,
+        repeat_penalty: 1.2,
+        repeat_last_n: 64
+      };
+    }
     return {
       num_predict: 420,
+      num_ctx: 2048,
       temperature: 0.2,
       repeat_penalty: 1.18,
       repeat_last_n: 128
@@ -402,6 +414,9 @@ const formatLocalAiError = (details: string) => {
   try {
     const parsed = JSON.parse(details);
     const rawError = String(parsed.error || details);
+    if (/model runner has unexpectedly stopped/i.test(rawError)) {
+      return 'O modelo de IA local parou durante a analise. Isso costuma acontecer por limite de memoria, GPU incompativel ou modelo pesado demais para imagem. Tente voltar para Automatico/Processador, fechar programas pesados ou analisar uma foto menor.';
+    }
     const memoryMatch = rawError.match(/model requires more system memory \(([^)]+)\) than is available \(([^)]+)\)/i);
     if (memoryMatch) {
       return `Este modelo exige mais memoria livre (${memoryMatch[1]}) do que o computador tem disponivel agora (${memoryMatch[2]}). Escolha um modelo mais leve em Assistente IA ou feche programas pesados e tente novamente.`;

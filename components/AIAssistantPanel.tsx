@@ -91,7 +91,12 @@ const getImageLimit = (model: string) => {
   return 3;
 };
 
-const getAiImageSize = (model: string) => model.startsWith('moondream') ? 384 : 512;
+const getAiImageSize = (model: string) => {
+  if (model.startsWith('moondream')) return 384;
+  if (model.startsWith('gemma3')) return 384;
+  if (model.startsWith('qwen2.5vl:3b')) return 448;
+  return 512;
+};
 const REQUEST_TIMEOUT_MS = 180000;
 const REVIEW_INSTRUCTION = `Revise o documento atual e responda somente neste formato:
 Lacunas identificadas:
@@ -280,6 +285,8 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         setStatusMessage(message);
         if (message.startsWith('A IA local respondeu') || message.startsWith('A IA local gerou')) {
           setMessages(current => [...current, { role: 'assistant', content: message }]);
+        } else if (/modelo.*parou|runner.*parou|resource|recurso|memoria|memory/i.test(message)) {
+          setStatus('online');
         } else {
           setStatus('offline');
         }

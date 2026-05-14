@@ -80,6 +80,7 @@ try {
 
   Set-Content -Path $lockPath -Value $PID -Encoding ASCII
   Write-MonitorLog "Monitor iniciado. Ponte: $BridgePath. Modo: $ComputeMode"
+  Set-OllamaComputeEnvironment
 
   $possibleOllamaPath = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
   if (Test-Path $possibleOllamaPath) {

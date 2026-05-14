@@ -76,6 +76,16 @@ function Set-UserEnv {
   }
 }
 
+function Set-UserEnvAndSetx {
+  param([string]$Name, [AllowNull()][string]$Value)
+  Set-UserEnv $Name $Value
+  if ($null -eq $Value) {
+    [Environment]::SetEnvironmentVariable($Name, $null, "User")
+  } else {
+    setx $Name $Value | Out-Null
+  }
+}
+
 function Set-OllamaComputeEnvironment {
   $mode = $ComputeMode
   if ([string]::IsNullOrWhiteSpace($mode)) {
@@ -91,29 +101,29 @@ function Set-OllamaComputeEnvironment {
   setx OLLAMA_ORIGINS $origins | Out-Null
 
   if ($mode -eq "cpu") {
-    Set-UserEnv "OLLAMA_VULKAN" $null
-    Set-UserEnv "ROCR_VISIBLE_DEVICES" "-1"
-    Set-UserEnv "GGML_VK_VISIBLE_DEVICES" "-1"
-    Set-UserEnv "CUDA_VISIBLE_DEVICES" "-1"
-    Set-UserEnv "HIP_VISIBLE_DEVICES" "-1"
-    Set-UserEnv "GPU_DEVICE_ORDINAL" "-1"
+    Set-UserEnvAndSetx "OLLAMA_VULKAN" $null
+    Set-UserEnvAndSetx "ROCR_VISIBLE_DEVICES" "-1"
+    Set-UserEnvAndSetx "GGML_VK_VISIBLE_DEVICES" "-1"
+    Set-UserEnvAndSetx "CUDA_VISIBLE_DEVICES" "-1"
+    Set-UserEnvAndSetx "HIP_VISIBLE_DEVICES" "-1"
+    Set-UserEnvAndSetx "GPU_DEVICE_ORDINAL" "-1"
     Write-Host "Ollama configurado para tentar usar apenas CPU." -ForegroundColor Yellow
     return
   }
 
-  Set-UserEnv "ROCR_VISIBLE_DEVICES" $null
-  Set-UserEnv "GGML_VK_VISIBLE_DEVICES" $null
-  Set-UserEnv "CUDA_VISIBLE_DEVICES" $null
-  Set-UserEnv "HIP_VISIBLE_DEVICES" $null
-  Set-UserEnv "GPU_DEVICE_ORDINAL" $null
+  Set-UserEnvAndSetx "ROCR_VISIBLE_DEVICES" $null
+  Set-UserEnvAndSetx "GGML_VK_VISIBLE_DEVICES" $null
+  Set-UserEnvAndSetx "CUDA_VISIBLE_DEVICES" $null
+  Set-UserEnvAndSetx "HIP_VISIBLE_DEVICES" $null
+  Set-UserEnvAndSetx "GPU_DEVICE_ORDINAL" $null
 
   if ($mode -eq "gpu") {
-    Set-UserEnv "OLLAMA_VULKAN" "1"
+    Set-UserEnvAndSetx "OLLAMA_VULKAN" "1"
     Write-Host "Ollama configurado para tentar GPU. Vulkan foi ativado para ampliar compatibilidade." -ForegroundColor Yellow
     return
   }
 
-  Set-UserEnv "OLLAMA_VULKAN" $null
+  Set-UserEnvAndSetx "OLLAMA_VULKAN" $null
   Write-Host "Ollama configurado em modo automatico." -ForegroundColor Yellow
 }
 

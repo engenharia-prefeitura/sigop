@@ -61,6 +61,12 @@ function Set-OllamaComputeEnvironment {
   $env:OLLAMA_ORIGINS = "*"
 
   if ($mode -eq "cpu") {
+    [Environment]::SetEnvironmentVariable("OLLAMA_VULKAN", $null, "User")
+    [Environment]::SetEnvironmentVariable("ROCR_VISIBLE_DEVICES", "-1", "User")
+    [Environment]::SetEnvironmentVariable("GGML_VK_VISIBLE_DEVICES", "-1", "User")
+    [Environment]::SetEnvironmentVariable("CUDA_VISIBLE_DEVICES", "-1", "User")
+    [Environment]::SetEnvironmentVariable("HIP_VISIBLE_DEVICES", "-1", "User")
+    [Environment]::SetEnvironmentVariable("GPU_DEVICE_ORDINAL", "-1", "User")
     Remove-Item Env:\OLLAMA_VULKAN -ErrorAction SilentlyContinue
     $env:ROCR_VISIBLE_DEVICES = "-1"
     $env:GGML_VK_VISIBLE_DEVICES = "-1"
@@ -70,6 +76,11 @@ function Set-OllamaComputeEnvironment {
     return $mode
   }
 
+  [Environment]::SetEnvironmentVariable("ROCR_VISIBLE_DEVICES", $null, "User")
+  [Environment]::SetEnvironmentVariable("GGML_VK_VISIBLE_DEVICES", $null, "User")
+  [Environment]::SetEnvironmentVariable("CUDA_VISIBLE_DEVICES", $null, "User")
+  [Environment]::SetEnvironmentVariable("HIP_VISIBLE_DEVICES", $null, "User")
+  [Environment]::SetEnvironmentVariable("GPU_DEVICE_ORDINAL", $null, "User")
   Remove-Item Env:\ROCR_VISIBLE_DEVICES -ErrorAction SilentlyContinue
   Remove-Item Env:\GGML_VK_VISIBLE_DEVICES -ErrorAction SilentlyContinue
   Remove-Item Env:\CUDA_VISIBLE_DEVICES -ErrorAction SilentlyContinue
@@ -77,8 +88,10 @@ function Set-OllamaComputeEnvironment {
   Remove-Item Env:\GPU_DEVICE_ORDINAL -ErrorAction SilentlyContinue
 
   if ($mode -eq "gpu") {
+    [Environment]::SetEnvironmentVariable("OLLAMA_VULKAN", "1", "User")
     $env:OLLAMA_VULKAN = "1"
   } else {
+    [Environment]::SetEnvironmentVariable("OLLAMA_VULKAN", $null, "User")
     Remove-Item Env:\OLLAMA_VULKAN -ErrorAction SilentlyContinue
   }
 
