@@ -55,8 +55,8 @@ export const loadAiSettings = (): AiSettings => {
     const parsed = { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
     if (parsed.endpoint === 'http://localhost:11434') {
       parsed.endpoint = DEFAULT_AI_SETTINGS.endpoint;
-      saveAiSettings(parsed);
     }
+    saveAiSettings(parsed);
     return parsed;
   } catch {
     return DEFAULT_AI_SETTINGS;
@@ -178,11 +178,26 @@ export const chatWithLocalAi = async (
 
   if (!response.ok) {
     const details = await response.text().catch(() => '');
-    throw new Error(details || 'Falha ao conversar com a IA local.');
+    throw new Error(formatLocalAiError(details) || 'Falha ao conversar com a IA local.');
   }
 
   const data = await response.json();
   return data?.message?.content || '';
+};
+
+const formatLocalAiError = (details: string) => {
+  if (!details) return '';
+  try {
+    const parsed = JSON.parse(details);
+    const rawError = String(parsed.error || details);
+    const memoryMatch = rawError.match(/model requires more system memory \(([^)]+)\) than is available \(([^)]+)\)/i);
+    if (memoryMatch) {
+      return `Este modelo exige mais memoria livre (${memoryMatch[1]}) do que o computador tem disponivel agora (${memoryMatch[2]}). Escolha um modelo mais leve em Assistente IA ou feche programas pesados e tente novamente.`;
+    }
+    return rawError;
+  } catch {
+    return details;
+  }
 };
 
 export const buildKnowledgeContext = (pack = loadKnowledgePack()) => {

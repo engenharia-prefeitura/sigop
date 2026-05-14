@@ -13,10 +13,47 @@ import {
   type AiSettings
 } from '../lib/localAi';
 
-const INSTALLER_PATH = './ai/INSTALAR_ASSISTENTE_IA_SIGOP.bat';
-
 const toLines = (items: string[]) => items.join('\n');
 const fromLines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean);
+
+const AI_MODELS = [
+  {
+    id: 'moondream',
+    name: 'Moondream',
+    label: 'Muito leve com visao',
+    pcProfile: 'PC simples',
+    ram: '4 GB livres recomendados',
+    disk: 'Aproximadamente 1.7 GB',
+    note: 'Melhor para testar a IA em maquinas fracas. Analisa fotos, mas escreve com menos qualidade tecnica.'
+  },
+  {
+    id: 'gemma3:4b',
+    name: 'Gemma 3 4B',
+    label: 'Leve intermediario',
+    pcProfile: '8 a 12 GB RAM',
+    ram: '6 a 8 GB livres recomendados',
+    disk: 'Aproximadamente 3 GB',
+    note: 'Boa opcao intermediaria para texto e imagem, se o computador tiver folga de memoria.'
+  },
+  {
+    id: 'qwen2.5vl:3b',
+    name: 'Qwen2.5-VL 3B',
+    label: 'Melhor visao leve',
+    pcProfile: '16 GB RAM',
+    ram: '10 a 12 GB livres recomendados',
+    disk: 'Aproximadamente 3.2 GB',
+    note: 'Melhor analise visual entre os leves, mas pode falhar em PCs com pouca memoria livre.'
+  },
+  {
+    id: 'qwen2.5vl:7b',
+    name: 'Qwen2.5-VL 7B',
+    label: 'Mais qualidade',
+    pcProfile: '24 a 32 GB RAM',
+    ram: '16 GB livres ou mais',
+    disk: 'Aproximadamente 6 a 8 GB',
+    note: 'Mais pesado. Use apenas em computadores fortes.'
+  }
+];
 
 const AIAssistantSettings: React.FC = () => {
   const [settings, setSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
@@ -53,7 +90,10 @@ const AIAssistantSettings: React.FC = () => {
     setStatusMessage('Verificando Ollama local...');
     try {
       const data = await checkOllama(settings);
-      const modelFound = (data.models || []).some((model: any) => model.name === settings.model);
+      const modelFound = (data.models || []).some((model: any) => {
+        const modelName = String(model.name || '');
+        return modelName === settings.model || modelName === `${settings.model}:latest`;
+      });
       setStatus('online');
       setStatusMessage(modelFound
         ? `Ollama ativo e modelo ${settings.model} encontrado.`
@@ -106,6 +146,83 @@ const AIAssistantSettings: React.FC = () => {
     }
   };
 
+  const handleSelectModel = (model: string) => {
+    const nextSettings = { ...settings, model };
+    setSettings(nextSettings);
+    saveAiSettings(nextSettings);
+    setStatusMessage(`Modelo selecionado: ${model}. Baixe o instalador unico novamente para instalar este modelo.`);
+  };
+
+  const downloadInstaller = () => {
+    saveAiSettings(settings);
+    const script = `@echo off
+setlocal
+title SIGOP - Instalador do Assistente IA Local
+
+set "MODEL=${settings.model}"
+set "SCRIPT_URL=https://engenharia-prefeitura.github.io/sigop/ai/install_sigop_ai_assistant.ps1"
+set "SCRIPT_DIR=%LOCALAPPDATA%\\SIGOP\\AI"
+set "SCRIPT_PATH=%SCRIPT_DIR%\\install_sigop_ai_assistant.ps1"
+
+echo.
+echo ============================================================
+echo  SIGOP - Instalador do Assistente IA Local
+echo ============================================================
+echo.
+echo Modelo selecionado: %MODEL%
+echo.
+echo Este instalador vai:
+echo  1. Verificar ou instalar o Ollama
+echo  2. Iniciar o Ollama local
+echo  3. Criar a ponte local do SIGOP
+echo  4. Baixar o modelo escolhido
+echo.
+pause
+
+if not exist "%SCRIPT_DIR%" mkdir "%SCRIPT_DIR%"
+
+echo Baixando instalador atualizado do SIGOP...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing '%SCRIPT_URL%' -OutFile '%SCRIPT_PATH%'"
+
+if errorlevel 1 (
+  echo.
+  echo Nao foi possivel baixar o instalador atualizado.
+  echo Verifique a internet e tente novamente.
+  echo.
+  pause
+  exit /b 1
+)
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" -Model "%MODEL%"
+
+if errorlevel 1 (
+  echo.
+  echo ============================================================
+  echo  Nao foi possivel concluir a instalacao automaticamente.
+  echo ============================================================
+  echo.
+  pause
+  exit /b 1
+)
+
+echo.
+echo ============================================================
+echo  Pronto! Volte ao SIGOP e clique em "Verificar IA local".
+echo ============================================================
+echo.
+pause
+`;
+    const blob = new Blob([script], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `INSTALAR_ASSISTENTE_IA_SIGOP_${settings.model.replace(/[^a-z0-9]+/gi, '_')}.bat`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="mx-auto max-w-7xl space-y-8 p-4 pb-32 lg:p-10">
       <div className="flex flex-col gap-2">
@@ -138,12 +255,35 @@ const AIAssistantSettings: React.FC = () => {
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-sm outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-900"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Modelo</label>
-              <div className="w-full rounded-xl border border-slate-200 bg-slate-100 p-3 text-sm font-black text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                Qwen2.5-VL 3B - leve com visao
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Modelo</label>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {AI_MODELS.map(model => (
+                  <button
+                    key={model.id}
+                    onClick={() => handleSelectModel(model.id)}
+                    className={`rounded-2xl border p-4 text-left transition-all ${settings.model === model.id ? 'border-primary bg-blue-50 ring-2 ring-primary/10' : 'border-slate-200 bg-slate-50 hover:border-primary/60 dark:border-slate-700 dark:bg-slate-900'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-black text-slate-900 dark:text-white">{model.name}</p>
+                        <p className="mt-1 text-[10px] font-black uppercase text-primary">{model.label}</p>
+                      </div>
+                      <span
+                        className="material-symbols-outlined text-[18px] text-slate-400"
+                        title={`Perfil: ${model.pcProfile}\nRAM: ${model.ram}\nDisco: ${model.disk}\n${model.note}`}
+                      >
+                        info
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-slate-500">{model.pcProfile}</span>
+                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-slate-500">{model.ram}</span>
+                    </div>
+                  </button>
+                ))}
               </div>
-              <p className="mt-1 text-[10px] font-bold uppercase text-slate-400">Modelo padrao instalado pelo SIGOP</p>
+              <p className="mt-2 text-[10px] font-bold uppercase text-slate-400">Passe o mouse no icone de informacao para ver requisitos. Se der erro de memoria, escolha um modelo mais leve.</p>
             </div>
           </div>
 
@@ -157,9 +297,9 @@ const AIAssistantSettings: React.FC = () => {
             <button onClick={handlePullModel} disabled={status === 'working'} className="rounded-xl bg-primary px-5 py-3 text-xs font-black uppercase text-white hover:bg-blue-700 disabled:opacity-50">
               Baixar modelo
             </button>
-            <a href={INSTALLER_PATH} download className="rounded-xl bg-emerald-600 px-5 py-3 text-xs font-black uppercase text-white hover:bg-emerald-700">
+            <button onClick={downloadInstaller} className="rounded-xl bg-emerald-600 px-5 py-3 text-xs font-black uppercase text-white hover:bg-emerald-700">
               Baixar instalador unico
-            </a>
+            </button>
           </div>
 
           {statusMessage && (
