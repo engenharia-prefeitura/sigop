@@ -42,9 +42,10 @@ Na revisao de texto, nao afirme que analisou imagens. Use apenas texto, descrica
 
 const SMALL_VISION_SYSTEM_PROMPT = `
 Responda sempre em portugues do Brasil.
-Analise apenas a imagem enviada e a legenda.
+Leia primeiro a legenda da foto, extraia dela o contexto tecnico e depois compare com a imagem enviada.
+Analise apenas a imagem enviada e a legenda; nao use fatos externos.
 Se nao conseguir identificar algo, diga "nao foi possivel confirmar pela imagem".
-Use frases curtas. Nao repita palavras. Maximo de 6 linhas.
+Use frases tecnicas objetivas. Nao repita palavras.
 Use este formato:
 Observacao:
 Possiveis indicios:
@@ -140,6 +141,11 @@ const formatChatHistory = (history: AiChatMessage[]) => history
   .slice(-6)
   .map(message => `${message.role === 'assistant' ? 'IA' : 'Usuario'}: ${message.content}`)
   .join('\n\n');
+
+const formatPhotoLegendForAi = (photo: any) => {
+  const caption = String(photo?.caption || '').trim();
+  return caption ? caption : 'Sem legenda cadastrada.';
+};
 
 const prepareImageForAi = async (dataUrl: string, maxSize: number): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -254,7 +260,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         {
           role: 'user',
           content: includeImage
-            ? `Legenda da foto: ${selectedPhoto?.caption || 'sem legenda'}\nTarefa: ${instruction}\nResponda em portugues, no formato pedido, sem repeticao.`
+            ? `LEGENDA DA FOTO (analise antes da imagem):\n${formatPhotoLegendForAi(selectedPhoto)}\n\nTAREFA:\n${instruction}\n\nFluxo obrigatorio: 1) interprete a legenda; 2) confira a imagem; 3) separe o que vem da legenda do que e apenas indicio visual; 4) responda em portugues, no formato pedido, sem repeticao.`
             : `Contexto resumido:\n${shortDocumentContext}\n\n${chatHistory ? `Conversa recente:\n${chatHistory}\n\n` : ''}Tarefa: ${instruction}\nResponda em portugues, curto e objetivo, sem repeticao.`
           ,
           images: imagePayload
@@ -267,7 +273,13 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       { role: 'system', content: buildKnowledgeContext(knowledge) || 'Sem pacote de conhecimento local adicional.' },
       { role: 'user', content: `CONTEXTO RESUMIDO DO DOCUMENTO:\n${shortDocumentContext}` },
       ...(chatHistory ? [{ role: 'user' as const, content: `CONVERSA RECENTE:\n${chatHistory}` }] : []),
-      { role: 'user', content: `TAREFA:\n${instruction}\n\nResponda de forma completa, objetiva e finalize a resposta.`, images: imagePayload }
+      {
+        role: 'user' as const,
+        content: includeImage
+          ? `LEGENDA DA FOTO (analise antes da imagem):\n${formatPhotoLegendForAi(selectedPhoto)}\n\nTAREFA:\n${instruction}\n\nFluxo obrigatorio: primeiro use a legenda para entender local, evento e contexto; depois analise a imagem; diferencie informacao da legenda, indicio visual e ponto nao confirmavel. Responda de forma completa, objetiva e finalize a resposta.`
+          : `TAREFA:\n${instruction}\n\nResponda de forma completa, objetiva e finalize a resposta.`,
+        images: imagePayload
+      }
     ];
   };
 
@@ -458,6 +470,13 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                   </div>
                 </div>
               ))}
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] rounded-2xl bg-slate-100 px-3 py-2 text-sm font-bold leading-relaxed text-slate-500">
+                    Pensando...
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

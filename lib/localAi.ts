@@ -311,7 +311,7 @@ const formatLocalNetworkError = (err: unknown) => {
 const getModelOptions = (model: string, hasImages = false) => {
   if (model.startsWith('moondream')) {
     return {
-      num_predict: 90,
+      num_predict: hasImages ? -1 : 180,
       num_ctx: 1024,
       num_thread: 2,
       temperature: 0.1,
@@ -334,12 +334,12 @@ const getModelOptions = (model: string, hasImages = false) => {
   if (model.startsWith('gemma3')) {
     if (hasImages) {
       return {
-        num_predict: 160,
-        num_ctx: 1024,
+        num_predict: -1,
+        num_ctx: 2048,
         num_thread: 4,
         temperature: 0.1,
         repeat_penalty: 1.2,
-        repeat_last_n: 64
+        repeat_last_n: 128
       };
     }
     return {
