@@ -28,6 +28,73 @@ function Add-CorsHeaders {
   $Response.Headers["Access-Control-Allow-Private-Network"] = "true"
 }
 
+function Read-RequestBody {
+  param($Request)
+  if (-not $Request.HasEntityBody) { return $null }
+  $reader = [System.IO.StreamReader]::new($Request.InputStream, $Request.ContentEncoding)
+  try {
+    return $reader.ReadToEnd()
+  } finally {
+    $reader.Close()
+  }
+}
+
+function Write-JsonResponse {
+  param($Response, [int]$StatusCode, [string]$Json)
+  $Response.StatusCode = $StatusCode
+  $Response.ContentType = "application/json"
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($Json)
+  $Response.OutputStream.Write($bytes, 0, $bytes.Length)
+}
+
+function Set-OllamaComputeEnvironment {
+  param([string]$ComputeMode)
+  $mode = $ComputeMode
+  if ([string]::IsNullOrWhiteSpace($mode)) {
+    $mode = "auto"
+  }
+  $mode = $mode.ToLowerInvariant()
+  if (@("auto", "cpu", "gpu") -notcontains $mode) {
+    $mode = "auto"
+  }
+
+  $env:OLLAMA_ORIGINS = "*"
+
+  if ($mode -eq "cpu") {
+    Remove-Item Env:\OLLAMA_VULKAN -ErrorAction SilentlyContinue
+    $env:ROCR_VISIBLE_DEVICES = "-1"
+    $env:GGML_VK_VISIBLE_DEVICES = "-1"
+    $env:CUDA_VISIBLE_DEVICES = "-1"
+    $env:HIP_VISIBLE_DEVICES = "-1"
+    $env:GPU_DEVICE_ORDINAL = "-1"
+    return $mode
+  }
+
+  Remove-Item Env:\ROCR_VISIBLE_DEVICES -ErrorAction SilentlyContinue
+  Remove-Item Env:\GGML_VK_VISIBLE_DEVICES -ErrorAction SilentlyContinue
+  Remove-Item Env:\CUDA_VISIBLE_DEVICES -ErrorAction SilentlyContinue
+  Remove-Item Env:\HIP_VISIBLE_DEVICES -ErrorAction SilentlyContinue
+  Remove-Item Env:\GPU_DEVICE_ORDINAL -ErrorAction SilentlyContinue
+
+  if ($mode -eq "gpu") {
+    $env:OLLAMA_VULKAN = "1"
+  } else {
+    Remove-Item Env:\OLLAMA_VULKAN -ErrorAction SilentlyContinue
+  }
+
+  return $mode
+}
+
+function Restart-Ollama {
+  param([string]$ComputeMode)
+  $mode = Set-OllamaComputeEnvironment $ComputeMode
+  Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
+  Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
+  Write-BridgeLog "Ollama reiniciado pela ponte. Modo: $mode"
+  return $mode
+}
+
 $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add($listenUrl)
 $listener.Start()
@@ -49,10 +116,21 @@ while ($listener.IsListening) {
     }
 
     if ($request.RawUrl -eq "/sigop-health") {
-      $response.StatusCode = 200
-      $response.ContentType = "application/json"
-      $bytes = [System.Text.Encoding]::UTF8.GetBytes("{""ok"":true}")
-      $response.OutputStream.Write($bytes, 0, $bytes.Length)
+      Write-JsonResponse $response 200 "{""ok"":true}"
+      continue
+    }
+
+    if ($request.RawUrl -eq "/sigop-compute-mode" -and $request.HttpMethod -eq "POST") {
+      $body = Read-RequestBody $request
+      $computeMode = "auto"
+      if ($body) {
+        try {
+          $parsed = $body | ConvertFrom-Json
+          if ($parsed.computeMode) { $computeMode = [string]$parsed.computeMode }
+        } catch {}
+      }
+      $mode = Restart-Ollama $computeMode
+      Write-JsonResponse $response 200 "{""ok"":true,""computeMode"":""$mode"",""restarted"":true}"
       continue
     }
 
@@ -66,11 +144,7 @@ while ($listener.IsListening) {
     $targetUrl = $ollamaBaseUrl + $request.RawUrl
     $body = $null
 
-    if ($request.HasEntityBody) {
-      $reader = [System.IO.StreamReader]::new($request.InputStream, $request.ContentEncoding)
-      $body = $reader.ReadToEnd()
-      $reader.Close()
-    }
+    $body = Read-RequestBody $request
 
     $headers = @{}
     if ($request.ContentType) {
@@ -106,6 +180,12 @@ while ($listener.IsListening) {
     $response.OutputStream.Write($responseBytes, 0, $responseBytes.Length)
   } catch {
     Write-BridgeLog ($_ | Out-String)
+    if (($_ | Out-String) -match "tempo limite|timeout|timed out") {
+      try {
+        Write-BridgeLog "Timeout detectado. Encerrando processos do Ollama para parar inferencia presa."
+        Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      } catch {}
+    }
     try {
       if ($response -ne $null) {
         $response.StatusCode = 502

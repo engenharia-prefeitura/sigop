@@ -4,6 +4,7 @@ import {
   DEFAULT_TEXT_MODEL,
   DEFAULT_VISION_MODEL,
   RECOMMENDED_TEXT_MODEL,
+  applyOllamaComputeMode,
   checkOllama,
   checkOllamaRuntime,
   exportKnowledgePack,
@@ -241,11 +242,20 @@ const AIAssistantSettings: React.FC = () => {
     setStatusMessage(`Modelo de fotos selecionado: ${visionModel}. Baixe o instalador unico novamente para instalar este modelo.`);
   };
 
-  const handleSelectComputeMode = (computeMode: 'auto' | 'cpu' | 'gpu') => {
+  const handleSelectComputeMode = async (computeMode: 'auto' | 'cpu' | 'gpu') => {
     const nextSettings = { ...settings, computeMode };
     setSettings(nextSettings);
     saveAiSettings(nextSettings);
-    setStatusMessage('Modo de execucao salvo. Baixe e execute o instalador unico para reiniciar o Ollama neste modo.');
+    setStatus('working');
+    setStatusMessage('Modo de execucao salvo. Tentando reiniciar o Ollama agora...');
+    try {
+      await applyOllamaComputeMode(nextSettings, computeMode);
+      setStatus('online');
+      setStatusMessage('Ollama reiniciado no modo escolhido. Rode uma analise e clique em Verificar IA local para confirmar CPU/GPU.');
+    } catch (err: any) {
+      setStatus('idle');
+      setStatusMessage((err?.message || 'Nao foi possivel reiniciar automaticamente.') + ' Execute o instalador unico atualizado uma vez para ativar esta funcao.');
+    }
   };
 
   const downloadInstaller = () => {
@@ -375,7 +385,7 @@ pause
                   />
                 ))}
               </div>
-              <p className="mt-2 text-[10px] font-bold uppercase text-slate-400">Depois de trocar CPU/GPU, execute o instalador unico para reiniciar o Ollama no modo escolhido.</p>
+              <p className="mt-2 text-[10px] font-bold uppercase text-slate-400">Ao trocar CPU/GPU, o SIGOP tenta reiniciar o Ollama automaticamente. Se nao conseguir, execute o instalador unico atualizado.</p>
             </div>
             <div className="md:col-span-2">
               <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Modelo para texto, chat e laudo</label>

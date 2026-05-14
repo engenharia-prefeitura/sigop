@@ -94,7 +94,7 @@ try {
       Start-Sleep -Seconds 5
     }
 
-    if (-not (Test-Url "http://127.0.0.1:11435/sigop-health")) {
+    if (-not (Test-Url "http://localhost:11435/sigop-health")) {
       if (Test-Path $BridgePath) {
         Write-MonitorLog "Ponte SIGOP nao respondeu. Tentando iniciar."
         Start-Process powershell.exe -ArgumentList @(

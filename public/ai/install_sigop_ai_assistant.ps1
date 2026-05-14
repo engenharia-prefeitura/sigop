@@ -163,6 +163,13 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -like "*sigop_ollama_bridge.ps1*" } |
   ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null }
 
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like "*sigop_ai_bridge_monitor.ps1*" } |
+  ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null }
+
+$lockPath = Join-Path $bridgeDir "sigop_ai_bridge_monitor.pid"
+Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+
 Install-BridgeMonitor
 
 Start-Process powershell.exe -ArgumentList @(

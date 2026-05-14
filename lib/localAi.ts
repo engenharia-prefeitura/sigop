@@ -190,6 +190,27 @@ export const checkOllamaRuntime = async (settings = loadAiSettings()) => {
   return response.json();
 };
 
+export const applyOllamaComputeMode = async (
+  settings = loadAiSettings(),
+  computeMode = getComputeMode(settings)
+) => {
+  let response: Response;
+  try {
+    response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/sigop-compute-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ computeMode })
+    });
+  } catch (err) {
+    throw new Error(formatLocalNetworkError(err));
+  }
+  if (!response.ok) {
+    const details = await response.text().catch(() => '');
+    throw new Error(details || 'Nao foi possivel reiniciar o Ollama no modo escolhido.');
+  }
+  return response.json().catch(() => ({ ok: true }));
+};
+
 export const pullModel = async (
   settings = loadAiSettings(),
   onProgress?: (message: string) => void,
@@ -249,6 +270,7 @@ export const chatWithLocalAi = async (
       body: JSON.stringify({
         model: modelName,
         stream: false,
+        keep_alive: '30s',
         messages,
         options: getModelOptions(modelName)
       })
