@@ -5,7 +5,9 @@ import {
   DEFAULT_VISION_MODEL,
   RECOMMENDED_TEXT_MODEL,
   checkOllama,
+  checkOllamaRuntime,
   exportKnowledgePack,
+  getComputeMode,
   getSelectedAiModels,
   getTextModel,
   getVisionModel,
@@ -91,6 +93,36 @@ const TEXT_MODELS = [
   },
 ];
 
+const COMPUTE_MODES = [
+  {
+    id: 'auto',
+    name: 'Automatico',
+    label: 'Padrao Ollama',
+    pcProfile: 'CPU/GPU',
+    ram: 'Escolha automatica',
+    disk: 'Sem alteracao',
+    note: 'O Ollama decide se usa CPU, GPU ou misto conforme suporte e memoria disponivel.'
+  },
+  {
+    id: 'cpu',
+    name: 'Processador',
+    label: 'Forcar CPU',
+    pcProfile: 'Estavel',
+    ram: 'Usa RAM do PC',
+    disk: 'Sem alteracao',
+    note: 'Desativa GPUs visiveis para testar o desempenho apenas no processador.'
+  },
+  {
+    id: 'gpu',
+    name: 'Placa de video',
+    label: 'Tentar GPU',
+    pcProfile: 'Experimental',
+    ram: 'Usa VRAM se suportado',
+    disk: 'Sem alteracao',
+    note: 'Reinicia o Ollama tentando usar GPU. Em AMD antiga, pode cair para CPU se nao houver suporte.'
+  }
+];
+
 const AIAssistantSettings: React.FC = () => {
   const [settings, setSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
   const [pack, setPack] = useState<AiKnowledgePack>(loadKnowledgePack());
@@ -126,16 +158,23 @@ const AIAssistantSettings: React.FC = () => {
     setStatusMessage('Verificando Ollama local...');
     try {
       const data = await checkOllama(settings);
+      const runtime = await checkOllamaRuntime(settings).catch(() => null);
       const installedNames = (data.models || []).map((model: any) => String(model.name || ''));
       const isInstalled = (target: string) => installedNames.some((modelName: string) => {
         return modelName === target || modelName === `${target}:latest`;
       });
       const selectedModels = getSelectedAiModels(settings);
       const missingModels = selectedModels.filter(model => !isInstalled(model));
+      const runningModels = (runtime?.models || [])
+        .map((model: any) => `${model.name || model.model || 'modelo'}: ${model.processor || 'processador nao informado'}`)
+        .join(' | ');
+      const runtimeMessage = runningModels
+        ? ` Modo detectado agora: ${runningModels}.`
+        : ' Nenhum modelo carregado agora; rode uma analise e verifique novamente para ver CPU/GPU.';
       setStatus('online');
       setStatusMessage(missingModels.length === 0
-        ? `Ollama ativo. Modelos prontos: ${selectedModels.join(' e ')}.`
-        : `Ollama ativo, mas falta baixar: ${missingModels.join(' e ')}.`);
+        ? `Ollama ativo. Modelos prontos: ${selectedModels.join(' e ')}.${runtimeMessage}`
+        : `Ollama ativo, mas falta baixar: ${missingModels.join(' e ')}.${runtimeMessage}`);
     } catch (err: any) {
       setStatus('offline');
       setStatusMessage(err?.message || 'Ollama nao respondeu neste computador. Baixe e execute o instalador local.');
@@ -202,16 +241,25 @@ const AIAssistantSettings: React.FC = () => {
     setStatusMessage(`Modelo de fotos selecionado: ${visionModel}. Baixe o instalador unico novamente para instalar este modelo.`);
   };
 
+  const handleSelectComputeMode = (computeMode: 'auto' | 'cpu' | 'gpu') => {
+    const nextSettings = { ...settings, computeMode };
+    setSettings(nextSettings);
+    saveAiSettings(nextSettings);
+    setStatusMessage('Modo de execucao salvo. Baixe e execute o instalador unico para reiniciar o Ollama neste modo.');
+  };
+
   const downloadInstaller = () => {
     saveAiSettings(settings);
     const visionModel = getVisionModel(settings);
     const textModel = getTextModel(settings);
+    const computeMode = getComputeMode(settings);
     const script = `@echo off
 setlocal
 title SIGOP - Instalador do Assistente IA Local
 
 set "VISION_MODEL=${visionModel}"
 set "TEXT_MODEL=${textModel}"
+set "COMPUTE_MODE=${computeMode}"
 set "SCRIPT_URL=https://engenharia-prefeitura.github.io/sigop/ai/install_sigop_ai_assistant.ps1"
 set "SCRIPT_DIR=%LOCALAPPDATA%\\SIGOP\\AI"
 set "SCRIPT_PATH=%SCRIPT_DIR%\\install_sigop_ai_assistant.ps1"
@@ -223,6 +271,7 @@ echo ============================================================
 echo.
 echo Modelo para fotos: %VISION_MODEL%
 echo Modelo para texto: %TEXT_MODEL%
+echo Modo de execucao: %COMPUTE_MODE%
 echo.
 echo Este instalador vai:
 echo  1. Verificar ou instalar o Ollama
@@ -230,6 +279,7 @@ echo  2. Iniciar o Ollama local
 echo  3. Criar a ponte local do SIGOP
 echo  4. Ativar monitor automatico da ponte
 echo  5. Baixar ou confirmar os modelos escolhidos
+echo  6. Aplicar o modo CPU/GPU escolhido
 echo.
 pause
 
@@ -247,7 +297,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" -Model "%VISION_MODEL%" -TextModel "%TEXT_MODEL%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" -Model "%VISION_MODEL%" -TextModel "%TEXT_MODEL%" -ComputeMode "%COMPUTE_MODE%"
 
 if errorlevel 1 (
   echo.
@@ -270,7 +320,7 @@ pause
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `INSTALAR_ASSISTENTE_IA_SIGOP_${visionModel.replace(/[^a-z0-9]+/gi, '_')}_${textModel.replace(/[^a-z0-9]+/gi, '_')}.bat`;
+    link.download = `INSTALAR_ASSISTENTE_IA_SIGOP_${computeMode}_${visionModel.replace(/[^a-z0-9]+/gi, '_')}_${textModel.replace(/[^a-z0-9]+/gi, '_')}.bat`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -279,6 +329,7 @@ pause
 
   const selectedTextModel = getTextModel(settings);
   const selectedVisionModel = getVisionModel(settings);
+  const selectedComputeMode = getComputeMode(settings);
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 p-4 pb-32 lg:p-10">
@@ -311,6 +362,20 @@ pause
                 onChange={event => setSettings({ ...settings, endpoint: event.target.value })}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-sm outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-900"
               />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Modo de execucao</label>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {COMPUTE_MODES.map(mode => (
+                  <ModelCard
+                    key={mode.id}
+                    model={mode}
+                    selected={selectedComputeMode === mode.id}
+                    onClick={() => handleSelectComputeMode(mode.id as 'auto' | 'cpu' | 'gpu')}
+                  />
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] font-bold uppercase text-slate-400">Depois de trocar CPU/GPU, execute o instalador unico para reiniciar o Ollama no modo escolhido.</p>
             </div>
             <div className="md:col-span-2">
               <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Modelo para texto, chat e laudo</label>

@@ -1,6 +1,7 @@
 param(
   [string]$Model = "moondream",
-  [string]$TextModel = "qwen2.5:1.5b"
+  [string]$TextModel = "qwen2.5:1.5b",
+  [string]$ComputeMode = "auto"
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +14,7 @@ $monitorPath = Join-Path $bridgeDir "sigop_ai_bridge_monitor.ps1"
 Write-Host "SIGOP - Instalador do Assistente IA Local" -ForegroundColor Cyan
 Write-Host "Modelo para fotos: $Model" -ForegroundColor Cyan
 Write-Host "Modelo para texto: $TextModel" -ForegroundColor Cyan
+Write-Host "Modo de execucao: $ComputeMode" -ForegroundColor Cyan
 
 function Test-Command {
   param([string]$Name)
@@ -44,7 +46,7 @@ function Wait-Bridge {
 }
 
 function Install-BridgeMonitor {
-  $monitorCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$monitorPath`" -BridgePath `"$bridgePath`""
+  $monitorCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$monitorPath`" -BridgePath `"$bridgePath`" -ComputeMode `"$ComputeMode`""
 
   try {
     schtasks.exe /Create /TN "SIGOP AI Local Monitor" /SC MINUTE /MO 5 /TR $monitorCommand /F | Out-Null
@@ -57,11 +59,62 @@ function Install-BridgeMonitor {
   try {
     $startupDir = [Environment]::GetFolderPath("Startup")
     $startupBat = Join-Path $startupDir "SIGOP_AI_LOCAL.bat"
-    $startupContent = "@echo off`r`nstart `"`" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$monitorPath`" -BridgePath `"$bridgePath`"`r`n"
+    $startupContent = "@echo off`r`nstart `"`" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$monitorPath`" -BridgePath `"$bridgePath`" -ComputeMode `"$ComputeMode`"`r`n"
     Set-Content -Path $startupBat -Value $startupContent -Encoding ASCII
   } catch {
     Write-Host "Nao foi possivel criar atalho de inicializacao. O assistente ainda funcionara nesta sessao." -ForegroundColor Yellow
   }
+}
+
+function Set-UserEnv {
+  param([string]$Name, [AllowNull()][string]$Value)
+  [Environment]::SetEnvironmentVariable($Name, $Value, "User")
+  if ($null -eq $Value) {
+    Remove-Item "Env:\$Name" -ErrorAction SilentlyContinue
+  } else {
+    Set-Item "Env:\$Name" $Value
+  }
+}
+
+function Set-OllamaComputeEnvironment {
+  $mode = $ComputeMode
+  if ([string]::IsNullOrWhiteSpace($mode)) {
+    $mode = "auto"
+  }
+  $mode = $mode.ToLowerInvariant()
+  if (@("auto", "cpu", "gpu") -notcontains $mode) {
+    $mode = "auto"
+  }
+
+  $origins = "*"
+  Set-UserEnv "OLLAMA_ORIGINS" $origins
+  setx OLLAMA_ORIGINS $origins | Out-Null
+
+  if ($mode -eq "cpu") {
+    Set-UserEnv "OLLAMA_VULKAN" $null
+    Set-UserEnv "ROCR_VISIBLE_DEVICES" "-1"
+    Set-UserEnv "GGML_VK_VISIBLE_DEVICES" "-1"
+    Set-UserEnv "CUDA_VISIBLE_DEVICES" "-1"
+    Set-UserEnv "HIP_VISIBLE_DEVICES" "-1"
+    Set-UserEnv "GPU_DEVICE_ORDINAL" "-1"
+    Write-Host "Ollama configurado para tentar usar apenas CPU." -ForegroundColor Yellow
+    return
+  }
+
+  Set-UserEnv "ROCR_VISIBLE_DEVICES" $null
+  Set-UserEnv "GGML_VK_VISIBLE_DEVICES" $null
+  Set-UserEnv "CUDA_VISIBLE_DEVICES" $null
+  Set-UserEnv "HIP_VISIBLE_DEVICES" $null
+  Set-UserEnv "GPU_DEVICE_ORDINAL" $null
+
+  if ($mode -eq "gpu") {
+    Set-UserEnv "OLLAMA_VULKAN" "1"
+    Write-Host "Ollama configurado para tentar GPU. Vulkan foi ativado para ampliar compatibilidade." -ForegroundColor Yellow
+    return
+  }
+
+  Set-UserEnv "OLLAMA_VULKAN" $null
+  Write-Host "Ollama configurado em modo automatico." -ForegroundColor Yellow
 }
 
 if (-not (Test-Command "ollama")) {
@@ -85,10 +138,7 @@ if (-not (Test-Command "ollama")) {
 }
 
 Write-Host "Iniciando Ollama local..." -ForegroundColor Yellow
-$origins = "*"
-[Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", $origins, "User")
-$env:OLLAMA_ORIGINS = $origins
-setx OLLAMA_ORIGINS $origins | Out-Null
+Set-OllamaComputeEnvironment
 Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 try {
@@ -122,7 +172,9 @@ Start-Process powershell.exe -ArgumentList @(
   "-File",
   $monitorPath,
   "-BridgePath",
-  $bridgePath
+  $bridgePath,
+  "-ComputeMode",
+  $ComputeMode
 ) -WindowStyle Hidden
 
 if (-not (Wait-Bridge)) {

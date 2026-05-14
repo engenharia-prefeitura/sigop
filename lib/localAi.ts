@@ -12,6 +12,7 @@ export interface AiSettings {
   textModel?: string;
   visionModel?: string;
   textModelMode?: 'manual';
+  computeMode?: 'auto' | 'cpu' | 'gpu';
 }
 
 export interface AiKnowledgePack {
@@ -34,7 +35,8 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   endpoint: 'http://localhost:11435',
   model: DEFAULT_VISION_MODEL,
   textModel: RECOMMENDED_TEXT_MODEL,
-  visionModel: DEFAULT_VISION_MODEL
+  visionModel: DEFAULT_VISION_MODEL,
+  computeMode: 'auto'
 };
 
 export const DEFAULT_KNOWLEDGE_PACK: AiKnowledgePack = {
@@ -70,6 +72,9 @@ export const loadAiSettings = (): AiSettings => {
     }
     if (parsed.textModel === DEFAULT_TEXT_MODEL && parsed.textModelMode !== 'manual') {
       parsed.textModel = RECOMMENDED_TEXT_MODEL;
+    }
+    if (!['auto', 'cpu', 'gpu'].includes(parsed.computeMode)) {
+      parsed.computeMode = DEFAULT_AI_SETTINGS.computeMode;
     }
     parsed.model = parsed.visionModel || parsed.model || DEFAULT_VISION_MODEL;
     saveAiSettings(parsed);
@@ -136,6 +141,7 @@ export const stripDataUrlPrefix = (image: string) => image.replace(/^data:image\
 export const isVisionOnlyModel = (model = '') => model.startsWith('moondream');
 export const getTextModel = (settings = loadAiSettings()) => settings.textModel || (isVisionOnlyModel(settings.model) ? RECOMMENDED_TEXT_MODEL : settings.model);
 export const getVisionModel = (settings = loadAiSettings()) => settings.visionModel || settings.model || DEFAULT_VISION_MODEL;
+export const getComputeMode = (settings = loadAiSettings()) => settings.computeMode || DEFAULT_AI_SETTINGS.computeMode || 'auto';
 export const getSelectedAiModels = (settings = loadAiSettings()) => Array.from(new Set([getVisionModel(settings), getTextModel(settings)].filter(Boolean)));
 
 type LocalNetworkRequestInit = RequestInit & {
@@ -170,6 +176,17 @@ export const checkOllama = async (settings = loadAiSettings()) => {
     throw new Error(formatLocalNetworkError(err));
   }
   if (!response.ok) throw new Error('Ollama local não respondeu.');
+  return response.json();
+};
+
+export const checkOllamaRuntime = async (settings = loadAiSettings()) => {
+  let response: Response;
+  try {
+    response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/api/ps`);
+  } catch (err) {
+    throw new Error(formatLocalNetworkError(err));
+  }
+  if (!response.ok) throw new Error('Nao foi possivel verificar o modo de execucao do Ollama.');
   return response.json();
 };
 
