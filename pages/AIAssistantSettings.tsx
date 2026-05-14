@@ -3,6 +3,7 @@ import {
   DEFAULT_AI_SETTINGS,
   DEFAULT_TEXT_MODEL,
   DEFAULT_VISION_MODEL,
+  RECOMMENDED_TEXT_MODEL,
   checkOllama,
   exportKnowledgePack,
   getSelectedAiModels,
@@ -62,13 +63,22 @@ const VISION_MODELS = [
 
 const TEXT_MODELS = [
   {
+    id: RECOMMENDED_TEXT_MODEL,
+    name: 'Qwen2.5 1.5B',
+    label: 'Recomendado para laudos',
+    pcProfile: 'PC simples/intermediario',
+    ram: '4 a 6 GB livres',
+    disk: 'Aproximadamente 986 MB',
+    note: 'Melhor equilibrio para revisar laudos e gerar texto tecnico sem pesar como modelos de visao.'
+  },
+  {
     id: DEFAULT_TEXT_MODEL,
     name: 'Qwen2.5 0.5B',
-    label: 'Texto ultra leve',
+    label: 'Minimo para texto',
     pcProfile: 'PC simples',
     ram: '2 a 4 GB livres',
     disk: 'Aproximadamente 398 MB',
-    note: 'Indicado para chat, revisao simples, perguntas e textos curtos em maquinas fracas.'
+    note: 'So use em maquinas muito fracas. Pode gerar respostas genericas, incompletas ou pouco tecnicas.'
   },
   {
     id: 'smollm2:360m',
@@ -79,15 +89,6 @@ const TEXT_MODELS = [
     disk: 'Aproximadamente 726 MB',
     note: 'Alternativa pequena para texto. Pode ter qualidade inferior em portugues tecnico.'
   },
-  {
-    id: 'qwen2.5:1.5b',
-    name: 'Qwen2.5 1.5B',
-    label: 'Texto melhor',
-    pcProfile: '8 GB RAM',
-    ram: '4 a 6 GB livres',
-    disk: 'Aproximadamente 986 MB',
-    note: 'Mais qualidade para redacao tecnica, ainda bem mais leve que modelos de visao.'
-  }
 ];
 
 const AIAssistantSettings: React.FC = () => {
@@ -188,7 +189,7 @@ const AIAssistantSettings: React.FC = () => {
   };
 
   const handleSelectTextModel = (textModel: string) => {
-    const nextSettings = { ...settings, textModel };
+    const nextSettings = { ...settings, textModel, textModelMode: 'manual' as const };
     setSettings(nextSettings);
     saveAiSettings(nextSettings);
     setStatusMessage(`Modelo de texto selecionado: ${textModel}. Baixe o instalador unico novamente para instalar este modelo.`);

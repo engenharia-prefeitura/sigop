@@ -11,6 +11,7 @@ export interface AiSettings {
   model: string;
   textModel?: string;
   visionModel?: string;
+  textModelMode?: 'manual';
 }
 
 export interface AiKnowledgePack {
@@ -26,12 +27,13 @@ export interface AiKnowledgePack {
 const SETTINGS_KEY = 'sigop_ai_settings';
 const KNOWLEDGE_KEY = 'sigop_ai_knowledge_pack';
 export const DEFAULT_TEXT_MODEL = 'qwen2.5:0.5b';
+export const RECOMMENDED_TEXT_MODEL = 'qwen2.5:1.5b';
 export const DEFAULT_VISION_MODEL = 'moondream';
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
   endpoint: 'http://localhost:11435',
   model: DEFAULT_VISION_MODEL,
-  textModel: DEFAULT_TEXT_MODEL,
+  textModel: RECOMMENDED_TEXT_MODEL,
   visionModel: DEFAULT_VISION_MODEL
 };
 
@@ -64,7 +66,10 @@ export const loadAiSettings = (): AiSettings => {
     }
     if (!parsed.visionModel) parsed.visionModel = parsed.model || DEFAULT_VISION_MODEL;
     if (!parsed.textModel) {
-      parsed.textModel = isVisionOnlyModel(parsed.model) ? DEFAULT_TEXT_MODEL : (parsed.model || DEFAULT_TEXT_MODEL);
+      parsed.textModel = isVisionOnlyModel(parsed.model) ? RECOMMENDED_TEXT_MODEL : (parsed.model || RECOMMENDED_TEXT_MODEL);
+    }
+    if (parsed.textModel === DEFAULT_TEXT_MODEL && parsed.textModelMode !== 'manual') {
+      parsed.textModel = RECOMMENDED_TEXT_MODEL;
     }
     parsed.model = parsed.visionModel || parsed.model || DEFAULT_VISION_MODEL;
     saveAiSettings(parsed);
@@ -129,7 +134,7 @@ export const addApprovedExample = (example: string) => {
 
 export const stripDataUrlPrefix = (image: string) => image.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
 export const isVisionOnlyModel = (model = '') => model.startsWith('moondream');
-export const getTextModel = (settings = loadAiSettings()) => settings.textModel || (isVisionOnlyModel(settings.model) ? DEFAULT_TEXT_MODEL : settings.model);
+export const getTextModel = (settings = loadAiSettings()) => settings.textModel || (isVisionOnlyModel(settings.model) ? RECOMMENDED_TEXT_MODEL : settings.model);
 export const getVisionModel = (settings = loadAiSettings()) => settings.visionModel || settings.model || DEFAULT_VISION_MODEL;
 export const getSelectedAiModels = (settings = loadAiSettings()) => Array.from(new Set([getVisionModel(settings), getTextModel(settings)].filter(Boolean)));
 
@@ -277,7 +282,7 @@ const getModelOptions = (model: string) => {
 
   if (model.startsWith('qwen2.5:0.5b') || model.startsWith('smollm2:360m')) {
     return {
-      num_predict: 220,
+      num_predict: 420,
       num_ctx: 2048,
       num_thread: 2,
       temperature: 0.2,
@@ -288,7 +293,7 @@ const getModelOptions = (model: string) => {
 
   if (model.startsWith('gemma3')) {
     return {
-      num_predict: 260,
+      num_predict: 420,
       temperature: 0.2,
       repeat_penalty: 1.18,
       repeat_last_n: 128
@@ -296,7 +301,7 @@ const getModelOptions = (model: string) => {
   }
 
   return {
-    num_predict: 360,
+    num_predict: 520,
     temperature: 0.2,
     repeat_penalty: 1.15,
     repeat_last_n: 128

@@ -1,6 +1,6 @@
 param(
   [string]$Model = "moondream",
-  [string]$TextModel = "qwen2.5:0.5b"
+  [string]$TextModel = "qwen2.5:1.5b"
 )
 
 $ErrorActionPreference = "Stop"

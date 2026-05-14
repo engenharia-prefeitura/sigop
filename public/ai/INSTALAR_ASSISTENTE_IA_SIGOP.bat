@@ -3,7 +3,7 @@ setlocal
 title SIGOP - Instalador do Assistente IA Local
 
 set "VISION_MODEL=moondream"
-set "TEXT_MODEL=qwen2.5:0.5b"
+set "TEXT_MODEL=qwen2.5:1.5b"
 set "SCRIPT_URL=https://engenharia-prefeitura.github.io/sigop/ai/install_sigop_ai_assistant.ps1"
 set "SCRIPT_DIR=%LOCALAPPDATA%\SIGOP\AI"
 set "SCRIPT_PATH=%SCRIPT_DIR%\install_sigop_ai_assistant.ps1"

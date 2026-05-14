@@ -34,6 +34,9 @@ Responda em portugues do Brasil, com linguagem tecnica clara.
 Nao conclua causa definitiva apenas por imagens. Diferencie observacao visual, hipotese e recomendacao de verificacao.
 Quando sugerir texto para inserir no documento, entregue pronto para uso e sem Markdown pesado.
 Nunca altere nada automaticamente; o usuario aprova antes.
+Nao cumprimente. Nao explique a estrutura do documento. Nao use termos inventados como "lacinha".
+Se a tarefa for revisar, aponte problemas concretos do texto recebido e perguntas objetivas para o tecnico responder.
+Se faltar dado, diga exatamente qual dado falta. Nao diga que esta tudo bem organizado quando existirem lacunas.
 `;
 
 const SMALL_VISION_SYSTEM_PROMPT = `
@@ -90,6 +93,26 @@ const getImageLimit = (model: string) => {
 
 const getAiImageSize = (model: string) => model.startsWith('moondream') ? 384 : 512;
 const REQUEST_TIMEOUT_MS = 180000;
+const REVIEW_INSTRUCTION = `Revise o documento atual e responda somente neste formato:
+Lacunas identificadas:
+1. [lacuna concreta ou "nao identificada"]
+2. [lacuna concreta ou "nao identificada"]
+Inconsistencias ou pontos fracos:
+1. [ponto concreto ou "nao identificado"]
+2. [ponto concreto ou "nao identificado"]
+Perguntas para o tecnico:
+1. [pergunta objetiva]
+2. [pergunta objetiva]
+3. [pergunta objetiva]
+Encaminhamentos sugeridos:
+1. [encaminhamento tecnico cauteloso]
+Resumo final: [uma frase curta].
+Nao cumprimente, nao explique o que e um documento, nao use Markdown com titulos grandes e nao invente dados ausentes.`;
+const CONCLUSION_INSTRUCTION = `Gere uma conclusao tecnica cautelosa para o documento em ate 2 paragrafos curtos.
+Inclua: limitacao da analise, possivel risco observado somente se constar no texto, e recomendacao de verificacao/encaminhamento.
+Nao invente causa, dimensoes, responsaveis ou gravidade.`;
+const IMPROVE_TEXT_INSTRUCTION = `Reescreva o conteudo atual em linguagem tecnica formal, mantendo somente os fatos existentes.
+Nao acrescente informacoes novas. Preserve incertezas. Entregue texto pronto para colar no documento.`;
 
 const formatChatHistory = (history: AiChatMessage[]) => history
   .filter(message => message.role !== 'system' && message.content.trim())
@@ -223,7 +246,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       { role: 'system', content: buildKnowledgeContext(knowledge) || 'Sem pacote de conhecimento local adicional.' },
       { role: 'user', content: `CONTEXTO RESUMIDO DO DOCUMENTO:\n${shortDocumentContext}` },
       ...(chatHistory ? [{ role: 'user' as const, content: `CONVERSA RECENTE:\n${chatHistory}` }] : []),
-      { role: 'user', content: instruction, images: imagePayload }
+      { role: 'user', content: `TAREFA:\n${instruction}\n\nResponda de forma completa, objetiva e finalize a resposta.`, images: imagePayload }
     ];
   };
 
@@ -360,21 +383,21 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           </button>
           <button
             disabled={loading || status !== 'online'}
-            onClick={() => runAssistant('Revise o documento atual e aponte lacunas, inconsistencias, informacoes ausentes e perguntas que o tecnico deve responder antes de finalizar.')}
+            onClick={() => runAssistant(REVIEW_INSTRUCTION)}
             className="rounded-xl border border-slate-200 p-3 text-left text-xs font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
           >
             Revisar Laudo
           </button>
           <button
             disabled={loading || status !== 'online'}
-            onClick={() => runAssistant('Gere uma conclusao tecnica cautelosa para o documento, com recomendacoes e limitacoes da analise.')}
+            onClick={() => runAssistant(CONCLUSION_INSTRUCTION)}
             className="rounded-xl border border-slate-200 p-3 text-left text-xs font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
           >
             Criar Conclusao
           </button>
           <button
             disabled={loading || status !== 'online'}
-            onClick={() => runAssistant('Transforme o conteudo atual em redacao tecnica mais formal, mantendo sentido e sem inventar dados.')}
+            onClick={() => runAssistant(IMPROVE_TEXT_INSTRUCTION)}
             className="rounded-xl border border-slate-200 p-3 text-left text-xs font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
           >
             Melhorar Texto
