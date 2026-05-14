@@ -119,13 +119,25 @@ export const addApprovedExample = (example: string) => {
 export const stripDataUrlPrefix = (image: string) => image.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
 
 type LocalNetworkRequestInit = RequestInit & {
-  targetAddressSpace?: 'local';
+  targetAddressSpace?: 'local' | 'loopback';
+};
+
+const getTargetAddressSpace = (url: string): 'local' | 'loopback' => {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1') {
+      return 'loopback';
+    }
+  } catch {
+    return 'loopback';
+  }
+  return 'local';
 };
 
 const localNetworkFetch = (url: string, init: RequestInit = {}) => {
   const requestInit: LocalNetworkRequestInit = {
     ...init,
-    targetAddressSpace: 'local'
+    targetAddressSpace: getTargetAddressSpace(url)
   };
   return fetch(url, requestInit);
 };
