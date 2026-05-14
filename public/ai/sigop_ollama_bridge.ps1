@@ -2,6 +2,17 @@ $ErrorActionPreference = "Stop"
 
 $listenUrl = "http://localhost:11435/"
 $ollamaBaseUrl = "http://127.0.0.1:11434"
+$logDir = Join-Path $env:LOCALAPPDATA "SIGOP\AI"
+$logPath = Join-Path $logDir "sigop_ollama_bridge.log"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+function Write-BridgeLog {
+  param([string]$Message)
+  try {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $logPath -Value "$timestamp - $Message" -Encoding UTF8
+  } catch {}
+}
 
 function Add-CorsHeaders {
   param($Response, $Request)
@@ -20,17 +31,28 @@ function Add-CorsHeaders {
 $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add($listenUrl)
 $listener.Start()
+Write-BridgeLog "Ponte SIGOP iniciada em $listenUrl"
 
 while ($listener.IsListening) {
-  $context = $listener.GetContext()
-  $request = $context.Request
-  $response = $context.Response
-  Add-CorsHeaders $response $request
+  $context = $null
+  $response = $null
 
   try {
+    $context = $listener.GetContext()
+    $request = $context.Request
+    $response = $context.Response
+    Add-CorsHeaders $response $request
+
     if ($request.HttpMethod -eq "OPTIONS") {
       $response.StatusCode = 204
-      $response.Close()
+      continue
+    }
+
+    if ($request.RawUrl -eq "/sigop-health") {
+      $response.StatusCode = 200
+      $response.ContentType = "application/json"
+      $bytes = [System.Text.Encoding]::UTF8.GetBytes("{""ok"":true}")
+      $response.OutputStream.Write($bytes, 0, $bytes.Length)
       continue
     }
 
@@ -38,7 +60,6 @@ while ($listener.IsListening) {
       $response.StatusCode = 404
       $bytes = [System.Text.Encoding]::UTF8.GetBytes("SIGOP Ollama bridge")
       $response.OutputStream.Write($bytes, 0, $bytes.Length)
-      $response.Close()
       continue
     }
 
@@ -84,12 +105,23 @@ while ($listener.IsListening) {
     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($ollamaResponse.Content)
     $response.OutputStream.Write($responseBytes, 0, $responseBytes.Length)
   } catch {
-    $response.StatusCode = 502
-    $response.ContentType = "application/json"
-    $message = ($_ | Out-String).Replace("\", "\\").Replace('"', '\"').Replace("`r", "").Replace("`n", "\n")
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes("{""error"":""$message""}")
-    $response.OutputStream.Write($bytes, 0, $bytes.Length)
+    Write-BridgeLog ($_ | Out-String)
+    try {
+      if ($response -ne $null) {
+        $response.StatusCode = 502
+        $response.ContentType = "application/json"
+        $message = ($_ | Out-String).Replace("\", "\\").Replace('"', '\"').Replace("`r", "").Replace("`n", "\n")
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes("{""error"":""$message""}")
+        $response.OutputStream.Write($bytes, 0, $bytes.Length)
+      }
+    } catch {
+      Write-BridgeLog ("Falha ao responder erro: " + ($_ | Out-String))
+    }
   } finally {
-    $response.Close()
+    try {
+      if ($response -ne $null) { $response.Close() }
+    } catch {
+      Write-BridgeLog ("Falha ao fechar resposta: " + ($_ | Out-String))
+    }
   }
 }

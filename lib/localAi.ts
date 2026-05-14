@@ -263,7 +263,7 @@ export const chatWithLocalAi = async (
 const formatLocalNetworkError = (err: unknown) => {
   const message = err instanceof Error ? err.message : String(err || '');
   if (/failed to fetch|networkerror|load failed|err_failed|denied/i.test(message)) {
-    return 'O navegador bloqueou o acesso a IA local deste computador. Quando aparecer a permissao de rede local, clique em Permitir. Se nao aparecer, execute novamente o instalador unico do Assistente IA e depois clique em Verificar IA local.';
+    return 'A ponte local do SIGOP nao respondeu ou o navegador bloqueou o acesso local. Nao precisa reinstalar os modelos; execute o instalador unico atualizado uma vez para ativar o monitor automatico da ponte e depois clique em Verificar IA local.';
   }
   return message || 'Nao foi possivel conectar a IA local neste computador.';
 };

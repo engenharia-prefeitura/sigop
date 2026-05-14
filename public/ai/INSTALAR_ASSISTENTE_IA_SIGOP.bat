@@ -20,9 +20,10 @@ echo Este instalador vai:
 echo  1. Verificar ou instalar o Ollama
 echo  2. Iniciar o Ollama local
 echo  3. Criar a ponte local do SIGOP
-echo  4. Baixar os modelos selecionados
+echo  4. Ativar monitor automatico da ponte
+echo  5. Baixar ou confirmar os modelos selecionados
 echo.
-echo O download do modelo pode demorar na primeira vez.
+echo O download dos modelos pode demorar na primeira vez. Se ja existir, ele apenas confirma.
 echo.
 pause
 

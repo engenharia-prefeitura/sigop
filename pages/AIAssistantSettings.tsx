@@ -228,7 +228,8 @@ echo Este instalador vai:
 echo  1. Verificar ou instalar o Ollama
 echo  2. Iniciar o Ollama local
 echo  3. Criar a ponte local do SIGOP
-echo  4. Baixar os modelos escolhidos
+echo  4. Ativar monitor automatico da ponte
+echo  5. Baixar ou confirmar os modelos escolhidos
 echo.
 pause
 
@@ -369,10 +370,10 @@ pause
             <li>Baixe o instalador unico em arquivo BAT.</li>
             <li>Abra o arquivo baixado e confirme a execucao no Windows.</li>
             <li>Volte aqui e clique em Verificar IA local.</li>
-            <li>Se aparecer erro de conexao, execute o mesmo instalador unico novamente.</li>
+            <li>O instalador tambem ativa um monitor automatico para manter a ponte local ligada.</li>
           </ol>
           <p className="mt-4 text-xs font-bold uppercase text-blue-700">
-            A instalacao nao usa Supabase. O modelo e o conhecimento ficam no PC do usuario.
+            Se o modelo ja existir, o Ollama apenas confirma o arquivo. Nao precisa baixar tudo novamente.
           </p>
         </div>
       </section>
