@@ -3,6 +3,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$bridgeUrl = "https://engenharia-prefeitura.github.io/sigop/ai/sigop_ollama_bridge.ps1"
+$bridgeDir = Join-Path $env:LOCALAPPDATA "SIGOP\AI"
+$bridgePath = Join-Path $bridgeDir "sigop_ollama_bridge.ps1"
 
 Write-Host "SIGOP - Instalador do Assistente IA Local" -ForegroundColor Cyan
 Write-Host "Modelo selecionado: $Model" -ForegroundColor Cyan
@@ -16,6 +19,18 @@ function Wait-Ollama {
   for ($i = 0; $i -lt 30; $i++) {
     try {
       $response = Invoke-WebRequest -UseBasicParsing "http://localhost:11434/api/tags" -TimeoutSec 2
+      if ($response.StatusCode -eq 200) { return $true }
+    } catch {
+      Start-Sleep -Seconds 2
+    }
+  }
+  return $false
+}
+
+function Wait-Bridge {
+  for ($i = 0; $i -lt 30; $i++) {
+    try {
+      $response = Invoke-WebRequest -UseBasicParsing "http://localhost:11435/api/tags" -TimeoutSec 2
       if ($response.StatusCode -eq 200) { return $true }
     } catch {
       Start-Sleep -Seconds 2
@@ -64,11 +79,33 @@ if (-not (Wait-Ollama)) {
   exit 1
 }
 
+Write-Host "Instalando ponte local SIGOP..." -ForegroundColor Yellow
+New-Item -ItemType Directory -Force -Path $bridgeDir | Out-Null
+Invoke-WebRequest -UseBasicParsing $bridgeUrl -OutFile $bridgePath
+
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -like "*sigop_ollama_bridge.ps1*" } |
+  ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate | Out-Null }
+
+Start-Process powershell.exe -ArgumentList @(
+  "-NoProfile",
+  "-ExecutionPolicy",
+  "Bypass",
+  "-File",
+  $bridgePath
+) -WindowStyle Hidden
+
+if (-not (Wait-Bridge)) {
+  Write-Host "Nao foi possivel iniciar a ponte local SIGOP em http://localhost:11435." -ForegroundColor Red
+  Read-Host "Pressione Enter para sair"
+  exit 1
+}
+
 Write-Host "Baixando modelo $Model. Isso pode demorar na primeira vez..." -ForegroundColor Yellow
 ollama pull $Model
 
 Write-Host ""
 Write-Host "Assistente IA Local pronto para uso no SIGOP." -ForegroundColor Green
 Write-Host "Modelo instalado: $Model" -ForegroundColor Green
-Write-Host "Endpoint: http://localhost:11434" -ForegroundColor Green
+Write-Host "Endpoint: http://localhost:11435" -ForegroundColor Green
 Read-Host "Pressione Enter para finalizar"
