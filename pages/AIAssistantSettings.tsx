@@ -14,6 +14,7 @@ import {
 } from '../lib/localAi';
 
 const INSTALLER_PATH = './ai/INSTALAR_ASSISTENTE_IA_SIGOP.bat';
+const CORS_FIX_PATH = './ai/CORRIGIR_CONEXAO_OLLAMA_SIGOP.bat';
 
 const toLines = (items: string[]) => items.join('\n');
 const fromLines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean);
@@ -166,6 +167,9 @@ const AIAssistantSettings: React.FC = () => {
             <a href={INSTALLER_PATH} download className="rounded-xl bg-emerald-600 px-5 py-3 text-xs font-black uppercase text-white hover:bg-emerald-700">
               Baixar instalador facil
             </a>
+            <a href={CORS_FIX_PATH} download className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-3 text-xs font-black uppercase text-amber-700 hover:bg-amber-100">
+              Corrigir conexao
+            </a>
           </div>
 
           {statusMessage && (
@@ -181,7 +185,7 @@ const AIAssistantSettings: React.FC = () => {
             <li>Baixe o instalador facil em arquivo BAT.</li>
             <li>Abra o arquivo baixado e confirme a execucao no Windows.</li>
             <li>Volte aqui e clique em Verificar IA local.</li>
-            <li>Se o Ollama estiver ativo, use Baixar modelo quando quiser trocar de modelo.</li>
+            <li>Se aparecer erro de CORS, baixe e execute Corrigir conexao.</li>
           </ol>
           <p className="mt-4 text-xs font-bold uppercase text-blue-700">
             A instalacao nao usa Supabase. O modelo e o conhecimento ficam no PC do usuario.
