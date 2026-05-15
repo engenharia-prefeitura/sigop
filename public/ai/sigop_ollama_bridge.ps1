@@ -179,6 +179,38 @@ while ($listener.IsListening) {
       }
     }
 
+    $isStreamingRequest = $body -and ($body -match '"stream"\s*:\s*true')
+    if ($isStreamingRequest -and $request.HttpMethod -eq "POST") {
+      $ollamaRequest = [System.Net.HttpWebRequest]::Create($targetUrl)
+      $ollamaRequest.Method = $request.HttpMethod
+      $ollamaRequest.ContentType = if ($request.ContentType) { $request.ContentType } else { "application/json" }
+      $ollamaRequest.Accept = "application/x-ndjson, application/json"
+      $requestBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+      $ollamaRequest.ContentLength = $requestBytes.Length
+      $requestStream = $ollamaRequest.GetRequestStream()
+      try {
+        $requestStream.Write($requestBytes, 0, $requestBytes.Length)
+      } finally {
+        $requestStream.Close()
+      }
+
+      $ollamaStreamResponse = $ollamaRequest.GetResponse()
+      try {
+        $response.StatusCode = [int]$ollamaStreamResponse.StatusCode
+        $response.ContentType = "application/x-ndjson"
+        $inputStream = $ollamaStreamResponse.GetResponseStream()
+        $buffer = New-Object byte[] 8192
+        while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+          $response.OutputStream.Write($buffer, 0, $read)
+          $response.OutputStream.Flush()
+        }
+      } finally {
+        if ($inputStream) { $inputStream.Close() }
+        $ollamaStreamResponse.Close()
+      }
+      continue
+    }
+
     $ollamaResponse = Invoke-WebRequest @invokeParams
     $response.StatusCode = [int]$ollamaResponse.StatusCode
     $contentType = $ollamaResponse.Headers["Content-Type"]

@@ -117,7 +117,9 @@ const formatUsageMetrics = (metrics?: AiUsageMetrics) => {
 const formatLiveUsage = (message: ChatMessage, elapsedSeconds: number) => {
   if (!message.streaming) return '';
   const approx = message.liveApproxTokens || Math.max(1, Math.ceil((message.content || '').length / 4));
-  return `Gerando resposta... aprox. ${approx} tokens | ${elapsedSeconds}s`;
+  return message.liveApproxTokens
+    ? `Gerando resposta... aprox. ${approx} tokens | ${elapsedSeconds}s`
+    : `Aguardando o modelo local... ${elapsedSeconds}s`;
 };
 
 const buildDocumentText = (context: AIAssistantPanelProps['documentContext']) => {
@@ -271,7 +273,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       pushMessage({
         id: assistantMessageId,
         role: 'assistant',
-        content: 'Preparando resposta...',
+        content: 'Estou preparando a resposta. Se o modelo local nao enviar texto em tempo real, eu mostro o resultado assim que terminar.',
         streaming: true,
         liveApproxTokens: 0
       });

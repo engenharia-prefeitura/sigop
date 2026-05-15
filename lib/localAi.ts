@@ -385,7 +385,7 @@ export const chatWithLocalAiDetailed = async (
     const metrics = extractAiMetrics(finalEvent);
 
     if (!text) {
-      throw new Error('A IA local respondeu, mas nao enviou texto aproveitavel. Tente novamente com uma pergunta mais curta ou escolha outro modelo.');
+      return chatWithLocalAiDetailed(messages, settings, signal, modelName);
     }
 
     if (isDegenerateResponse(text)) {
