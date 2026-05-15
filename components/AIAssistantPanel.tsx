@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   addApprovedExample,
   buildKnowledgeContext,
-  chatWithLocalAi,
+  chatWithLocalAiDetailed,
   checkOllama,
   exportKnowledgePack,
   getTextModel,
   loadAiSettings,
   loadKnowledgePack,
+  type AiUsageMetrics,
   type AiChatMessage
 } from '../lib/localAi';
 
@@ -34,6 +35,7 @@ type ChatMessage = AiChatMessage & {
   id: string;
   actions?: AssistantAction[];
   applied?: boolean;
+  metrics?: AiUsageMetrics;
 };
 
 const SYSTEM_PROMPT = `
@@ -97,6 +99,18 @@ const toHtml = (text: string) => text
   .replace(/\n/g, '<br/>');
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const formatUsageMetrics = (metrics?: AiUsageMetrics) => {
+  if (!metrics) return '';
+  const parts = [
+    typeof metrics.promptTokens === 'number' ? `entrada ${metrics.promptTokens}` : '',
+    typeof metrics.responseTokens === 'number' ? `saida ${metrics.responseTokens}` : '',
+    typeof metrics.totalTokens === 'number' ? `total ${metrics.totalTokens}` : '',
+    typeof metrics.totalDurationMs === 'number' ? `${Math.max(1, Math.round(metrics.totalDurationMs / 1000))}s` : '',
+    metrics.doneReason === 'length' ? 'limite atingido' : ''
+  ].filter(Boolean);
+  return parts.length ? `Tokens: ${parts.join(' | ')}` : '';
+};
 
 const buildDocumentText = (context: AIAssistantPanelProps['documentContext']) => {
   const sectionText = context.sections
@@ -243,7 +257,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
     try {
       const requestMessages = buildMessages(instruction, previousMessages, targetSection, !!options.replacementMode);
-      const response = await chatWithLocalAi(requestMessages, settings, controller.signal, textModel);
+      const response = await chatWithLocalAiDetailed(requestMessages, settings, controller.signal, textModel);
       const actions: AssistantAction[] = [];
 
       if (options.replacementMode && targetSection) {
@@ -255,7 +269,8 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       pushMessage({
         id: makeId(),
         role: 'assistant',
-        content: response,
+        content: response.text,
+        metrics: response.metrics,
         actions
       });
     } catch (err: any) {
@@ -405,6 +420,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${message.role === 'user' ? 'bg-primary text-white' : 'bg-white text-slate-800 border border-slate-200'}`}>
               <div className="whitespace-pre-wrap">{message.content}</div>
+              {message.role === 'assistant' && formatUsageMetrics(message.metrics) && (
+                <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-bold uppercase text-slate-400">
+                  {formatUsageMetrics(message.metrics)}
+                </div>
+              )}
               {message.actions && message.actions.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
                   {message.actions.map((action, index) => (

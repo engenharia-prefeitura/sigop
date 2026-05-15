@@ -6,6 +6,22 @@ export interface AiChatMessage {
   images?: string[];
 }
 
+export interface AiUsageMetrics {
+  promptTokens?: number;
+  responseTokens?: number;
+  totalTokens?: number;
+  totalDurationMs?: number;
+  loadDurationMs?: number;
+  promptEvalDurationMs?: number;
+  evalDurationMs?: number;
+  doneReason?: string;
+}
+
+export interface AiChatResult {
+  text: string;
+  metrics: AiUsageMetrics;
+}
+
 export interface AiSettings {
   endpoint: string;
   model: string;
@@ -255,12 +271,34 @@ export const pullModel = async (
   }
 };
 
-export const chatWithLocalAi = async (
+const nsToMs = (value: unknown) => {
+  const numberValue = typeof value === 'number' ? value : Number(value || 0);
+  return Number.isFinite(numberValue) && numberValue > 0 ? Math.round(numberValue / 1000000) : undefined;
+};
+
+const extractAiMetrics = (data: any): AiUsageMetrics => {
+  const promptTokens = typeof data?.prompt_eval_count === 'number' ? data.prompt_eval_count : undefined;
+  const responseTokens = typeof data?.eval_count === 'number' ? data.eval_count : undefined;
+  return {
+    promptTokens,
+    responseTokens,
+    totalTokens: typeof promptTokens === 'number' || typeof responseTokens === 'number'
+      ? (promptTokens || 0) + (responseTokens || 0)
+      : undefined,
+    totalDurationMs: nsToMs(data?.total_duration),
+    loadDurationMs: nsToMs(data?.load_duration),
+    promptEvalDurationMs: nsToMs(data?.prompt_eval_duration),
+    evalDurationMs: nsToMs(data?.eval_duration),
+    doneReason: typeof data?.done_reason === 'string' ? data.done_reason : undefined
+  };
+};
+
+export const chatWithLocalAiDetailed = async (
   messages: AiChatMessage[],
   settings = loadAiSettings(),
   signal?: AbortSignal,
   modelName = settings.model
-): Promise<string> => {
+): Promise<AiChatResult> => {
   const hasImages = messages.some(message => Array.isArray(message.images) && message.images.length > 0);
   let response: Response;
   try {
@@ -288,6 +326,7 @@ export const chatWithLocalAi = async (
 
   const data = await response.json();
   const text = normalizeAiResponse(extractAiResponseText(data));
+  const metrics = extractAiMetrics(data);
 
   if (!text) {
     throw new Error('A IA local respondeu, mas nao enviou texto aproveitavel. Tente novamente com uma pergunta mais curta ou escolha outro modelo.');
@@ -297,7 +336,17 @@ export const chatWithLocalAi = async (
     throw new Error('A IA local gerou uma resposta repetitiva ou incompleta. Em computador muito fraco, tente uma foto por vez, reduza a pergunta ou selecione um modelo mais estavel.');
   }
 
-  return text;
+  return { text, metrics };
+};
+
+export const chatWithLocalAi = async (
+  messages: AiChatMessage[],
+  settings = loadAiSettings(),
+  signal?: AbortSignal,
+  modelName = settings.model
+): Promise<string> => {
+  const result = await chatWithLocalAiDetailed(messages, settings, signal, modelName);
+  return result.text;
 };
 
 const formatLocalNetworkError = (err: unknown) => {
@@ -322,8 +371,8 @@ const getModelOptions = (model: string, hasImages = false) => {
 
   if (model.startsWith('qwen2.5:0.5b') || model.startsWith('smollm2:360m')) {
     return {
-      num_predict: 420,
-      num_ctx: 2048,
+      num_predict: 900,
+      num_ctx: 3072,
       num_thread: 2,
       temperature: 0.2,
       repeat_penalty: 1.18,
@@ -343,8 +392,8 @@ const getModelOptions = (model: string, hasImages = false) => {
       };
     }
     return {
-      num_predict: 420,
-      num_ctx: 2048,
+      num_predict: 1200,
+      num_ctx: 4096,
       temperature: 0.2,
       repeat_penalty: 1.18,
       repeat_last_n: 128
@@ -352,7 +401,8 @@ const getModelOptions = (model: string, hasImages = false) => {
   }
 
   return {
-    num_predict: 520,
+    num_predict: 1800,
+    num_ctx: 4096,
     temperature: 0.2,
     repeat_penalty: 1.15,
     repeat_last_n: 128
