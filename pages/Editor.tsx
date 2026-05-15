@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../components/AuthContext';
 import RichTextEditor from '../components/RichTextEditor';
 import AIAssistantPanel from '../components/AIAssistantPanel';
+import { AI_VISIBILITY_CHANGED_EVENT, getAiAssistantEnabled } from '../lib/aiVisibility';
 
 // Helper de debounce para salvar automaticamente (agora no storage)
 const useDebounce = (value: any, delay: number) => {
@@ -79,6 +80,7 @@ const Editor: React.FC = () => {
   const [expandedSectionId, setExpandedSectionId] = useState<number | null>(null);
   const [hasAlreadySigned, setHasAlreadySigned] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiAssistantEnabled, setAiAssistantEnabled] = useState(true);
 
   // Debounce para salvar conteúdo
   const debouncedSections = useDebounce(sections, 1000);
@@ -90,6 +92,31 @@ const Editor: React.FC = () => {
   useEffect(() => {
     loadInitialData();
   }, [id]);
+
+  useEffect(() => {
+    let active = true;
+
+    const refreshAiVisibility = async () => {
+      const enabled = await getAiAssistantEnabled();
+      if (active) setAiAssistantEnabled(enabled);
+    };
+
+    const handleAiVisibilityChanged = () => {
+      void refreshAiVisibility();
+    };
+
+    void refreshAiVisibility();
+    window.addEventListener(AI_VISIBILITY_CHANGED_EVENT, handleAiVisibilityChanged);
+
+    return () => {
+      active = false;
+      window.removeEventListener(AI_VISIBILITY_CHANGED_EVENT, handleAiVisibilityChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!aiAssistantEnabled) setAiPanelOpen(false);
+  }, [aiAssistantEnabled]);
 
   // Bloqueio de Navegação (React Router)
   const blocker = useBlocker(
@@ -580,13 +607,15 @@ const Editor: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setAiPanelOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 h-10 rounded-lg text-xs font-bold uppercase flex items-center gap-2 shadow"
-            title="Abrir assistente IA local"
-          >
-            <span className="material-symbols-outlined text-[18px]">psychology</span> IA
-          </button>
+          {aiAssistantEnabled && (
+            <button
+              onClick={() => setAiPanelOpen(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 h-10 rounded-lg text-xs font-bold uppercase flex items-center gap-2 shadow"
+              title="Abrir assistente IA local"
+            >
+              <span className="material-symbols-outlined text-[18px]">psychology</span> IA
+            </button>
+          )}
 
           {(status === 'awaiting_signature' || status === 'finished') && (
             <button onClick={handleRevertDraft} className="text-xs font-bold text-gray-500 hover:text-red-500 uppercase px-4 border border-gray-200 h-10 rounded-lg hover:border-red-200 bg-white">
@@ -771,20 +800,22 @@ const Editor: React.FC = () => {
         </div>
       </div>
 
-      <AIAssistantPanel
-        open={aiPanelOpen}
-        onClose={() => setAiPanelOpen(false)}
-        disabled={status !== 'draft'}
-        documentContext={{
-          title,
-          typeName: docTypesList.find(t => t.id === docType)?.name || 'Geral',
-          description,
-          eventDate,
-          sections
-        }}
-        onInsertSection={insertAiSection}
-        onReplaceSection={replaceSectionContent}
-      />
+      {aiAssistantEnabled && (
+        <AIAssistantPanel
+          open={aiPanelOpen}
+          onClose={() => setAiPanelOpen(false)}
+          disabled={status !== 'draft'}
+          documentContext={{
+            title,
+            typeName: docTypesList.find(t => t.id === docType)?.name || 'Geral',
+            description,
+            eventDate,
+            sections
+          }}
+          onInsertSection={insertAiSection}
+          onReplaceSection={replaceSectionContent}
+        />
+      )}
 
       {/* Modal de Edição Expandida */}
       {expandedSectionId !== null && (

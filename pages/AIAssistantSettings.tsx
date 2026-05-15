@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import {
   DEFAULT_AI_SETTINGS,
   DEFAULT_TEXT_MODEL,
@@ -19,6 +20,7 @@ import {
   type AiKnowledgePack,
   type AiSettings
 } from '../lib/localAi';
+import { AI_VISIBILITY_CHANGED_EVENT, getAiAssistantEnabled } from '../lib/aiVisibility';
 
 const toLines = (items: string[]) => items.join('\n');
 const fromLines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean);
@@ -93,6 +95,8 @@ const AIAssistantSettings: React.FC = () => {
   const [referencesText, setReferencesText] = useState('');
   const [examplesText, setExamplesText] = useState('');
   const [installedModelNames, setInstalledModelNames] = useState<string[] | null>(null);
+  const [aiAssistantEnabled, setAiAssistantEnabled] = useState(true);
+  const [visibilityLoading, setVisibilityLoading] = useState(true);
 
   useEffect(() => {
     const loadedSettings = loadAiSettings();
@@ -100,6 +104,29 @@ const AIAssistantSettings: React.FC = () => {
     setSettings(loadedSettings);
     hydratePack(loadedPack);
     refreshInstalledModels(loadedSettings);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const refreshAiVisibility = async () => {
+      const enabled = await getAiAssistantEnabled();
+      if (!active) return;
+      setAiAssistantEnabled(enabled);
+      setVisibilityLoading(false);
+    };
+
+    const handleAiVisibilityChanged = () => {
+      void refreshAiVisibility();
+    };
+
+    void refreshAiVisibility();
+    window.addEventListener(AI_VISIBILITY_CHANGED_EVENT, handleAiVisibilityChanged);
+
+    return () => {
+      active = false;
+      window.removeEventListener(AI_VISIBILITY_CHANGED_EVENT, handleAiVisibilityChanged);
+    };
   }, []);
 
   const hydratePack = (nextPack: AiKnowledgePack) => {
@@ -310,6 +337,14 @@ pause
 
   const selectedTextModel = getTextModel(settings);
   const selectedComputeMode = getComputeMode(settings);
+
+  if (visibilityLoading) {
+    return <div className="p-10 text-sm font-bold text-slate-500">Carregando...</div>;
+  }
+
+  if (!aiAssistantEnabled) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 p-4 pb-32 lg:p-10">

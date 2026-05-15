@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { isNoRowsError } from '../lib/supabaseCompat';
+import { notifyAiVisibilityChanged, normalizeAiAssistantEnabled } from '../lib/aiVisibility';
 import * as XLSX from 'xlsx';
 
 const Settings: React.FC = () => {
@@ -12,7 +13,8 @@ const Settings: React.FC = () => {
   const [settings, setSettings] = useState<any>({
     company_name: '',
     header_text: '',
-    company_logo_url: ''
+    company_logo_url: '',
+    ai_assistant_enabled: true
   });
 
   // Pessoas
@@ -62,7 +64,8 @@ const Settings: React.FC = () => {
       setSettings({
         company_name: data.company_name || '',
         header_text: data.header_text || '',
-        company_logo_url: data.company_logo_url || ''
+        company_logo_url: data.company_logo_url || '',
+        ai_assistant_enabled: normalizeAiAssistantEnabled(data)
       });
     }
   };
@@ -124,20 +127,51 @@ const Settings: React.FC = () => {
 
   const handleSaveSettings = async () => {
     setLoading(true);
+    const baseSettingsPayload = {
+      company_name: settings.company_name || '',
+      header_text: settings.header_text || '',
+      company_logo_url: settings.company_logo_url || ''
+    };
+    const settingsPayload = myProfile?.is_admin
+      ? { ...baseSettingsPayload, ai_assistant_enabled: settings.ai_assistant_enabled !== false }
+      : baseSettingsPayload;
+
     // Garantir que estamos atualizando a linha correta ou inserindo uma nova
     const { data: existing } = await supabase.from('app_settings').select('id').maybeSingle();
 
     let error;
     if (existing) {
-      const { error: err } = await supabase.from('app_settings').update(settings).eq('id', existing.id);
+      const { error: err } = await supabase.from('app_settings').update(settingsPayload).eq('id', existing.id);
       error = err;
     } else {
-      const { error: err } = await supabase.from('app_settings').insert([settings]);
+      const { error: err } = await supabase.from('app_settings').insert([settingsPayload]);
       error = err;
     }
 
-    if (error) alert('Erro ao salvar: ' + error.message);
-    else alert('Configurações institucionais salvas!');
+    if (error) {
+      const message = error.message || '';
+      if (/ai_assistant_enabled|schema cache|column/i.test(message)) {
+        let fallbackError = null;
+        if (existing) {
+          const { error: err } = await supabase.from('app_settings').update(baseSettingsPayload).eq('id', existing.id);
+          fallbackError = err;
+        } else {
+          const { error: err } = await supabase.from('app_settings').insert([baseSettingsPayload]);
+          fallbackError = err;
+        }
+
+        if (fallbackError) {
+          alert('Erro ao salvar: ' + fallbackError.message);
+        } else {
+          alert('Dados institucionais salvos. Para ativar o controle global da IA, execute o script documentation/setup_ai_visibility_setting.sql no Supabase e salve novamente.');
+        }
+      } else {
+        alert('Erro ao salvar: ' + message);
+      }
+    } else {
+      notifyAiVisibilityChanged();
+      alert('Configurações institucionais salvas!');
+    }
     setLoading(false);
   };
 
@@ -398,6 +432,32 @@ const Settings: React.FC = () => {
                 <label className="text-[10px] font-black uppercase text-gray-500 mb-2 block tracking-widest">Secretaria / Setor / Cabeçalho Secundário</label>
                 <input value={settings.header_text || ''} onChange={e => setSettings({ ...settings, header_text: e.target.value })} className="w-full bg-gray-50 dark:bg-slate-900 border-2 dark:border-slate-700 p-4 rounded-2xl font-bold" placeholder="Ex: Secretaria de Desenvolvimento Urbano" />
               </div>
+              {myProfile?.is_admin && (
+                <div className="border-t border-slate-200 pt-6 dark:border-slate-700">
+                  <div className="flex flex-col gap-4 rounded-2xl bg-slate-50 p-5 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <span className="material-symbols-outlined mt-0.5 text-primary">psychology</span>
+                      <div>
+                        <p className="text-sm font-black uppercase text-slate-900 dark:text-white">Assistente IA Local</p>
+                        <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">Controle global visivel somente para administradores. Quando desligado, o menu, o editor e a pagina da IA ficam ocultos para todos os usuarios.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      aria-pressed={settings.ai_assistant_enabled !== false}
+                      onClick={() => setSettings({ ...settings, ai_assistant_enabled: settings.ai_assistant_enabled === false })}
+                      className={`flex min-w-[180px] items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-black uppercase transition-all ${
+                        settings.ai_assistant_enabled !== false
+                          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-700'
+                          : 'bg-slate-200 text-slate-600 hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-300'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[18px]">{settings.ai_assistant_enabled !== false ? 'visibility' : 'visibility_off'}</span>
+                      {settings.ai_assistant_enabled !== false ? 'IA visivel' : 'IA oculta'}
+                    </button>
+                  </div>
+                </div>
+              )}
               <button onClick={handleSaveSettings} disabled={loading} className="w-full py-5 bg-primary text-white rounded-3xl font-black text-lg shadow-xl hover:scale-[1.02] transition-all">
                 {loading ? 'Salvando...' : 'Salvar Alterações Institucionais'}
               </button>
