@@ -198,6 +198,9 @@ while ($listener.IsListening) {
       try {
         $response.StatusCode = [int]$ollamaStreamResponse.StatusCode
         $response.ContentType = "application/x-ndjson"
+        $response.SendChunked = $true
+        $response.KeepAlive = $false
+        $response.Headers["Cache-Control"] = "no-cache"
         $inputStream = $ollamaStreamResponse.GetResponseStream()
         $buffer = New-Object byte[] 8192
         while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
