@@ -402,7 +402,7 @@ const Editor: React.FC = () => {
   };
 
   const replaceSectionContent = (sectionId: number, content: string) => {
-    setSections(sections.map(section => (
+    setSections(current => current.map(section => (
       section.id === sectionId ? { ...section, content } : section
     )));
   };
