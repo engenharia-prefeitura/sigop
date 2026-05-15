@@ -442,7 +442,7 @@ const getModelOptions = (model: string, hasImages = false) => {
 
   if (model.startsWith('qwen2.5:0.5b') || model.startsWith('smollm2:360m')) {
     return {
-      num_predict: 900,
+      num_predict: 1400,
       num_ctx: 3072,
       num_thread: 2,
       temperature: 0.2,
@@ -508,11 +508,42 @@ const extractAiResponseText = (data: any): string => {
   ].find(text => text.trim()) || '';
 };
 
+const repairMojibake = (value: string) => {
+  if (!/[ÃÂ]/.test(value)) return value;
+  try {
+    const encoded = Array.from(value)
+      .map(char => {
+        const code = char.charCodeAt(0);
+        return code < 256 ? `%${code.toString(16).padStart(2, '0')}` : encodeURIComponent(char);
+      })
+      .join('');
+    return decodeURIComponent(encoded);
+  } catch {
+    return value
+      .replace(/Ã§/g, 'ç')
+      .replace(/Ã£/g, 'ã')
+      .replace(/Ãµ/g, 'õ')
+      .replace(/Ã¡/g, 'á')
+      .replace(/Ã©/g, 'é')
+      .replace(/Ã­/g, 'í')
+      .replace(/Ã³/g, 'ó')
+      .replace(/Ãº/g, 'ú')
+      .replace(/Ã¢/g, 'â')
+      .replace(/Ãª/g, 'ê')
+      .replace(/Ã´/g, 'ô')
+      .replace(/Ã /g, 'à')
+      .replace(/Âº/g, 'º')
+      .replace(/Âª/g, 'ª');
+  }
+};
+
 const normalizeAiResponse = (text: string) => text
+  ? repairMojibake(text)
   .replace(/\u0000/g, '')
   .replace(/[ \t]+\n/g, '\n')
   .replace(/\n{4,}/g, '\n\n')
-  .trim();
+  .trim()
+  : '';
 
 const isDegenerateResponse = (text: string) => {
   const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -560,10 +591,10 @@ const formatLocalAiError = (details: string) => {
 
 export const buildKnowledgeContext = (pack = loadKnowledgePack()) => {
   const blocks = [
-    pack.prompts.length ? `PROMPTS PADRAO:\n${pack.prompts.map(item => `- ${item}`).join('\n')}` : '',
-    pack.glossary.length ? `GLOSSARIO:\n${pack.glossary.map(item => `- ${item}`).join('\n')}` : '',
-    pack.references.length ? `REFERENCIAS LOCAIS:\n${pack.references.slice(0, 20).map(item => `- ${item}`).join('\n')}` : '',
-    pack.approvedExamples.length ? `EXEMPLOS APROVADOS:\n${pack.approvedExamples.slice(0, 8).map(item => `- ${item}`).join('\n')}` : ''
+    pack.prompts.length ? `PROMPTS PADRAO:\n${pack.prompts.map(item => `- ${repairMojibake(item)}`).join('\n')}` : '',
+    pack.glossary.length ? `GLOSSARIO:\n${pack.glossary.map(item => `- ${repairMojibake(item)}`).join('\n')}` : '',
+    pack.references.length ? `REFERENCIAS LOCAIS:\n${pack.references.slice(0, 20).map(item => `- ${repairMojibake(item)}`).join('\n')}` : '',
+    pack.approvedExamples.length ? `EXEMPLOS APROVADOS:\n${pack.approvedExamples.slice(0, 8).map(item => `- ${repairMojibake(item)}`).join('\n')}` : ''
   ].filter(Boolean);
 
   return blocks.join('\n\n');

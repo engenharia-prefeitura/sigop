@@ -32,10 +32,12 @@ type AssistantAction =
   | { type: 'replace'; label: string; sectionId: number };
 
 type SectionProposalStatus = 'pending' | 'accepted' | 'rejected';
+type ProposalMode = 'replace' | 'insert' | 'mixed';
 
 interface SectionProposal {
   id: string;
-  sectionId: number;
+  type: 'replace' | 'insert';
+  sectionId?: number;
   sectionTitle: string;
   content: string;
   status: SectionProposalStatus;
@@ -58,12 +60,13 @@ Use exclusivamente titulo, tipo, descricao, secoes textuais, legendas e mensagen
 Nao invente fatos, medidas, causas, gravidade, responsaveis, datas, normas ou conclusoes.
 Quando faltar dado, diga exatamente qual dado falta e sugira pergunta objetiva ao tecnico.
 Quando sugerir substituicao de secao, entregue texto pronto para colar, sem Markdown pesado, sem saudacao e sem explicacao longa.
-Quando revisar, seja direto: problema, sugestao de melhoria e pergunta se o usuario deseja aplicar.
-Quando a tarefa pedir revisao/substituicao de secoes, use blocos de proposta aplicavel por secao e nao crie secoes novas.
+Quando revisar, seja direto e proponha alteracoes nas secoes existentes.
+So proponha nova secao quando o usuario pedir complementar, criar nova secao, adicionar secao ou quando a tarefa pedir parecer/relatorio/conclusao como nova secao.
 `;
 
 const REVIEW_INSTRUCTION = `Revise o documento atual por secoes.
 Para cada secao textual que puder melhorar, gere uma proposta de substituicao com texto pronto.
+Nao crie novas secoes nesta revisao.
 Se uma secao nao tiver informacao suficiente, explique a lacuna no resumo e nao invente conteudo.
 Use somente fatos existentes.
 Nao diga que analisou imagens. Use legendas apenas como texto informado pelo usuario.`;
@@ -87,10 +90,45 @@ Nao analise imagens nem crie diagnostico visual.`;
 const PENDING_INSTRUCTION = `Liste as pendencias de informacao que impedem um documento tecnico mais completo.
 Agrupe por secao quando possivel e escreva perguntas objetivas para o tecnico responder.`;
 
+const COMPLEMENT_INSTRUCTION = `Analise o documento e proponha apenas novas secoes complementares que realmente agreguem valor tecnico.
+Nao substitua secoes existentes nesta tarefa.
+Use somente fatos existentes e deixe claro quando uma nova secao depender de informacao faltante.`;
+
 const htmlToPlainText = (html: string) => {
   const div = document.createElement('div');
   div.innerHTML = html || '';
-  return div.textContent || div.innerText || '';
+  return repairMojibake(div.textContent || div.innerText || '');
+};
+
+const repairMojibake = (value: string) => {
+  if (!/[ÃÂ]/.test(value)) return value;
+  try {
+    const encoded = Array.from(value)
+      .map(char => {
+        const code = char.charCodeAt(0);
+        return code < 256 ? `%${code.toString(16).padStart(2, '0')}` : encodeURIComponent(char);
+      })
+      .join('');
+    return decodeURIComponent(encoded);
+  } catch {
+    return value
+      .replace(/Ã§/g, 'ç')
+      .replace(/Ã£/g, 'ã')
+      .replace(/Ãµ/g, 'õ')
+      .replace(/Ã¡/g, 'á')
+      .replace(/Ã©/g, 'é')
+      .replace(/Ã­/g, 'í')
+      .replace(/Ã³/g, 'ó')
+      .replace(/Ãº/g, 'ú')
+      .replace(/Ã¢/g, 'â')
+      .replace(/Ãª/g, 'ê')
+      .replace(/Ã´/g, 'ô')
+      .replace(/Ã /g, 'à')
+      .replace(/Ã‡/g, 'Ç')
+      .replace(/Ãƒ/g, 'Ã')
+      .replace(/Âº/g, 'º')
+      .replace(/Âª/g, 'ª');
+  }
 };
 
 const isGenericPhotoCaption = (caption: string, index: number) => {
@@ -138,31 +176,64 @@ const looksLikeReplacementRequest = (text: string) => {
     && /(secao|secoes|texto|conteudo|documento|todas|geral)/.test(normalized);
 };
 
+const looksLikeInsertRequest = (text: string) => {
+  const normalized = normalizeText(text);
+  return /(complementar|complemente|criar|crie|adicionar|adicione|incluir|inclua|nova secao|novas secoes|parecer|relatorio|conclusao)/.test(normalized)
+    && /(secao|secoes|documento|parecer|relatorio|conclusao|complemento)/.test(normalized);
+};
+
 const isGeneralReviewRequest = (text: string) => {
   const normalized = normalizeText(text);
   return /(revisao geral|revisar documento|revisar tudo|todas as secoes|secoes existentes|documento inteiro|texto geral)/.test(normalized);
 };
 
 const getField = (block: string, label: string) => {
-  const match = block.match(new RegExp(`${label}\\s*:\\s*([^\\n\\r]+)`, 'i'));
-  return match?.[1]?.trim() || '';
+  const labels = ['TIPO', 'ID', 'TITULO', 'TEXTO', 'RESUMO'];
+  const nextLabels = labels.filter(item => item !== label).join('|');
+  const match = block.match(new RegExp(`${label}\\s*:\\s*([\\s\\S]*?)(?=\\s*(?:${nextLabels})\\s*:|$)`, 'i'));
+  return repairMojibake(match?.[1]?.trim() || '').replace(/\s+$/g, '');
 };
+
+const getTextField = (block: string) => {
+  const match = block.match(/TEXTO\s*:\s*([\s\S]*?)(?=\s*RESUMO\s*:|$)/i);
+  return repairMojibake(match?.[1]?.trim() || '');
+};
+
+const stripProposalSyntax = (text: string) => text
+  .replace(/\[(?:\/)?(?:PROPOSTA_SECAO|PROPOSTA_REVISAO|PROPOSTA_NOVA_SECAO|PROPOSED SECOES|PROPOSTA SECAO)\]/gi, '')
+  .trim();
 
 const parseSectionProposals = (rawText: string, sections: any[]) => {
   const proposals: SectionProposal[] = [];
-  const proposalRegex = /\[PROPOSTA_SECAO\]([\s\S]*?)\[\/PROPOSTA_SECAO\]/gi;
-  let displayText = rawText.replace(proposalRegex, (_, block) => {
-    const idText = getField(block, 'ID');
+  const normalizedRaw = repairMojibake(rawText);
+  const blockRegex = /\[(PROPOSTA_SECAO|PROPOSTA_REVISAO|PROPOSTA_NOVA_SECAO)\]([\s\S]*?)\[\/\1\]/gi;
+  const legacyBlocks = normalizedRaw
+    .split(/\[(?:PROPOSED SECOES|PROPOSTA SECAO)\]/gi)
+    .slice(1)
+    .map(block => block.replace(/(?=\[(?:PROPOSED SECOES|PROPOSTA SECAO)\])[\s\S]*$/i, '').trim())
+    .filter(Boolean);
+
+  let displayText = normalizedRaw.replace(blockRegex, (_, tag, block) => {
     const titleText = getField(block, 'TITULO');
-    const textMatch = block.match(/TEXTO\s*:\s*([\s\S]*)$/i);
-    const content = (textMatch?.[1] || '').trim();
+    const content = getTextField(block);
+    const isInsert = String(tag).toUpperCase() === 'PROPOSTA_NOVA_SECAO';
+    const idText = getField(block, 'ID').replace(/[^\d]/g, '');
     const id = Number(idText);
     const target = sections.find(section => Number(section.id) === id)
       || sections.find(section => normalizeText(String(section.title || '')) === normalizeText(titleText));
 
-    if (target && content) {
+    if (isInsert && titleText && content) {
       proposals.push({
         id: makeId(),
+        type: 'insert',
+        sectionTitle: titleText,
+        content,
+        status: 'pending'
+      });
+    } else if (target && content) {
+      proposals.push({
+        id: makeId(),
+        type: 'replace',
         sectionId: Number(target.id),
         sectionTitle: String(target.title || titleText || `Secao ${target.id}`),
         content,
@@ -173,12 +244,39 @@ const parseSectionProposals = (rawText: string, sections: any[]) => {
     return '';
   }).trim();
 
-  displayText = displayText.replace(/^RESUMO\s*:\s*/i, '').trim();
+  legacyBlocks.forEach(block => {
+    const idText = getField(block, 'ID').replace(/[^\d]/g, '');
+    const titleText = getField(block, 'TITULO');
+    const content = getTextField(block);
+    const target = sections.find(section => Number(section.id) === Number(idText))
+      || sections.find(section => normalizeText(String(section.title || '')) === normalizeText(titleText));
+    if (target && content) {
+      proposals.push({
+        id: makeId(),
+        type: 'replace',
+        sectionId: Number(target.id),
+        sectionTitle: String(target.title || titleText || `Secao ${target.id}`),
+        content,
+        status: 'pending'
+      });
+    }
+  });
+
+  if (legacyBlocks.length) {
+    displayText = normalizedRaw.split(/\[(?:PROPOSED SECOES|PROPOSTA SECAO)\]/i)[0].trim();
+  }
+
+  displayText = stripProposalSyntax(displayText)
+    .replace(/^RESUMO\s*:\s*/i, '')
+    .trim();
 
   if (!displayText && proposals.length) {
-    displayText = proposals.length === 1
-      ? 'Preparei uma proposta de substituicao para esta secao.'
-      : `Preparei ${proposals.length} propostas de substituicao para as secoes revisadas.`;
+    const replacements = proposals.filter(proposal => proposal.type === 'replace').length;
+    const inserts = proposals.filter(proposal => proposal.type === 'insert').length;
+    displayText = [
+      replacements ? `${replacements} proposta(s) para substituir secoes existentes` : '',
+      inserts ? `${inserts} proposta(s) de nova secao` : ''
+    ].filter(Boolean).join(' e ') + '.';
   }
 
   return { displayText, proposals };
@@ -302,12 +400,16 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     history: ChatMessage[] = [],
     targetSection?: any,
     replacementMode = false,
-    proposalMode = false
+    proposalMode: ProposalMode | false = false
   ): AiChatMessage[] => {
     const documentText = buildDocumentText(documentContext).slice(0, 7000);
     const chatHistory = formatChatHistory(history);
     const sectionText = targetSection
       ? `SECAO ALVO PARA TRABALHAR:\nID: ${targetSection.id}\nTitulo: ${targetSection.title}\nTexto atual:\n${htmlToPlainText(targetSection.content || '') || '[sem texto]'}`
+      : '';
+
+    const proposalInstruction = proposalMode
+      ? `TAREFA:\n${instruction}\n\nFORMATO OBRIGATORIO:\nComece com RESUMO: uma frase curta.\n\nPara alterar uma secao existente, use um bloco por secao exatamente assim:\n[PROPOSTA_REVISAO]\nID: numero da secao existente\nTITULO: titulo da secao existente\nTEXTO:\ntexto completo revisado para substituir apenas esta secao\n[/PROPOSTA_REVISAO]\n\nPara criar uma nova secao, use um bloco exatamente assim:\n[PROPOSTA_NOVA_SECAO]\nTITULO: titulo da nova secao\nTEXTO:\ntexto completo da nova secao\n[/PROPOSTA_NOVA_SECAO]\n\nREGRAS:\n${proposalMode === 'replace' ? '- Proponha somente alteracoes em secoes existentes. Nao crie novas secoes.\n' : ''}${proposalMode === 'insert' ? '- Proponha somente novas secoes. Nao substitua secoes existentes.\n' : ''}${proposalMode === 'mixed' ? '- Pode propor substituicoes e novas secoes quando forem claramente necessarias.\n' : ''}- Use apenas os fatos existentes no documento.\n- Nao escreva colchetes ou marcadores fora dos blocos acima.\n- Nao use formato em ingles.\n- Se nao houver proposta segura, responda apenas o resumo explicando a lacuna.`
       : '';
 
     return [
@@ -319,7 +421,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       {
         role: 'user',
         content: proposalMode
-          ? `TAREFA:\n${instruction}\n\nQuando houver texto melhor para uma secao existente, responda com um breve RESUMO e depois um bloco por secao neste formato exato:\n[PROPOSTA_SECAO]\nID: numero da secao existente\nTITULO: titulo da secao existente\nTEXTO:\ntexto completo revisado para substituir apenas esta secao\n[/PROPOSTA_SECAO]\n\nNao crie secoes novas. Nao inclua fotos como analise visual. Nao use markdown pesado. Se alguma secao nao deve ser substituida, cite apenas no resumo.`
+          ? proposalInstruction
           : replacementMode
           ? `TAREFA:\n${instruction}\n\nResponda SOMENTE com o novo texto da secao, pronto para substituir a secao selecionada. Nao inclua titulo, justificativa, markdown ou avisos.`
           : `TAREFA:\n${instruction}\n\nResponda de forma objetiva e completa. Se sugerir alteracao, pergunte no final se o usuario deseja aplicar.`
@@ -337,7 +439,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       displayText?: string;
       targetSectionId?: number;
       replacementMode?: boolean;
-      proposalMode?: boolean;
+      proposalMode?: ProposalMode | boolean;
       insertTitle?: string;
     } = {}
   ) => {
@@ -354,7 +456,8 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     let assistantMessageId = '';
 
     try {
-      const requestMessages = buildMessages(instruction, previousMessages, targetSection, !!options.replacementMode, !!options.proposalMode);
+      const proposalMode = options.proposalMode === true ? 'replace' : options.proposalMode || false;
+      const requestMessages = buildMessages(instruction, previousMessages, targetSection, !!options.replacementMode, proposalMode);
       assistantMessageId = makeId();
       pushMessage({
         id: assistantMessageId,
@@ -391,12 +494,23 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         const parsed = parseSectionProposals(response.text, textSections);
         content = parsed.displayText;
         proposals = parsed.proposals;
+        if (!proposals.length && options.insertTitle && response.text.trim()) {
+          proposals = [{
+            id: makeId(),
+            type: 'insert',
+            sectionTitle: options.insertTitle,
+            content: repairMojibake(response.text),
+            status: 'pending'
+          }];
+          content = `Preparei uma proposta de nova secao: "${options.insertTitle}".`;
+        }
       } else if (options.replacementMode && targetSection) {
         proposals = [{
           id: makeId(),
+          type: 'replace',
           sectionId: Number(targetSection.id),
           sectionTitle: String(targetSection.title || 'Secao selecionada'),
-          content: response.text,
+          content: repairMojibake(response.text),
           status: 'pending'
         }];
         content = `Preparei uma proposta para substituir "${targetSection.title}".`;
@@ -462,12 +576,25 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     if (!input.trim()) return;
     const prompt = input.trim();
     setInput('');
-    if (isGeneralReviewRequest(prompt)) {
-      await runAssistant(prompt, { displayText: prompt, proposalMode: true });
+    const wantsReplacement = looksLikeReplacementRequest(prompt);
+    const wantsInsert = looksLikeInsertRequest(prompt);
+
+    if (wantsReplacement && wantsInsert) {
+      await runAssistant(prompt, { displayText: prompt, proposalMode: 'mixed' });
       return;
     }
 
-    if (looksLikeReplacementRequest(prompt)) {
+    if (wantsInsert) {
+      await runAssistant(prompt, { displayText: prompt, proposalMode: 'insert' });
+      return;
+    }
+
+    if (isGeneralReviewRequest(prompt)) {
+      await runAssistant(prompt, { displayText: prompt, proposalMode: 'replace' });
+      return;
+    }
+
+    if (wantsReplacement) {
       const target = findSectionFromText(prompt, textSections) || selectedSection;
       if (target && !isGeneralReviewRequest(prompt)) {
         await runAssistant(prompt, {
@@ -477,7 +604,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         });
         return;
       }
-      await runAssistant(prompt, { displayText: prompt, proposalMode: true });
+      await runAssistant(prompt, { displayText: prompt, proposalMode: 'replace' });
       return;
     }
 
@@ -518,7 +645,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   };
 
   const acceptProposal = (messageId: string, proposal: SectionProposal) => {
-    onReplaceSection(proposal.sectionId, toHtml(proposal.content));
+    if (proposal.type === 'insert') {
+      onInsertSection(proposal.sectionTitle, toHtml(proposal.content));
+    } else if (proposal.sectionId) {
+      onReplaceSection(proposal.sectionId, toHtml(proposal.content));
+    }
     addApprovedExample(proposal.content);
     setProposalStatus(messageId, [proposal.id], 'accepted');
   };
@@ -530,7 +661,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const acceptAllProposals = (message: ChatMessage) => {
     const pending = message.proposals?.filter(proposal => proposal.status === 'pending') || [];
     pending.forEach(proposal => {
-      onReplaceSection(proposal.sectionId, toHtml(proposal.content));
+      if (proposal.type === 'insert') {
+        onInsertSection(proposal.sectionTitle, toHtml(proposal.content));
+      } else if (proposal.sectionId) {
+        onReplaceSection(proposal.sectionId, toHtml(proposal.content));
+      }
       addApprovedExample(proposal.content);
     });
     setProposalStatus(message.id, pending.map(proposal => proposal.id), 'accepted');
@@ -554,7 +689,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   };
 
   const runInsertCommand = (label: string, instruction: string, title: string) => {
-    runAssistant(instruction, { displayText: label, insertTitle: title });
+    runAssistant(instruction, { displayText: label, insertTitle: title, proposalMode: 'insert' });
   };
 
   if (!open) return null;
@@ -598,7 +733,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(REVIEW_INSTRUCTION, { displayText: 'Revisar documento', proposalMode: true })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(REVIEW_INSTRUCTION, { displayText: 'Revisar documento', proposalMode: 'replace' })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
             Revisar
           </button>
           <button disabled={loading || status !== 'online'} onClick={() => runInsertCommand('Gerar parecer', OPINION_INSTRUCTION, 'Parecer Tecnico')} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
@@ -613,8 +748,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           <button disabled={loading || status !== 'online'} onClick={() => runAssistant(PENDING_INSTRUCTION, { displayText: 'Sugerir pendencias' })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
             Pendencias
           </button>
-          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(IMPROVE_TEXT_INSTRUCTION, { displayText: 'Melhorar texto geral', proposalMode: true })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(IMPROVE_TEXT_INSTRUCTION, { displayText: 'Melhorar texto geral', proposalMode: 'replace' })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
             Texto geral
+          </button>
+          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(COMPLEMENT_INSTRUCTION, { displayText: 'Complementar documento', proposalMode: 'insert' })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+            Complementar
           </button>
         </div>
       </div>
@@ -664,7 +802,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                 <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">
-                      Propostas de substituicao
+                      Propostas da IA
                     </span>
                     {message.proposals.some(proposal => proposal.status === 'pending') && (
                       <div className="flex flex-wrap gap-2">
@@ -688,7 +826,12 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                   {message.proposals.map(proposal => (
                     <div key={proposal.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-black text-slate-900">{proposal.sectionTitle}</span>
+                        <div className="min-w-0">
+                          <span className="text-xs font-black text-slate-900">{proposal.sectionTitle}</span>
+                          <p className="mt-1 text-[10px] font-black uppercase text-slate-400">
+                            {proposal.type === 'insert' ? 'Nova secao' : `Substituir secao ${proposal.sectionId}`}
+                          </p>
+                        </div>
                         <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${
                           proposal.status === 'accepted'
                             ? 'bg-emerald-100 text-emerald-700'
@@ -709,7 +852,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                             onClick={() => acceptProposal(message.id, proposal)}
                             className="rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase text-white hover:bg-emerald-700 disabled:opacity-50"
                           >
-                            Aceitar
+                            {proposal.type === 'insert' ? 'Criar secao' : 'Substituir secao'}
                           </button>
                           <button
                             onClick={() => rejectProposal(message.id, proposal)}
