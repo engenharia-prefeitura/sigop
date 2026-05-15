@@ -92,12 +92,14 @@ const AIAssistantSettings: React.FC = () => {
   const [glossaryText, setGlossaryText] = useState('');
   const [referencesText, setReferencesText] = useState('');
   const [examplesText, setExamplesText] = useState('');
+  const [installedModelNames, setInstalledModelNames] = useState<string[] | null>(null);
 
   useEffect(() => {
     const loadedSettings = loadAiSettings();
     const loadedPack = loadKnowledgePack();
     setSettings(loadedSettings);
     hydratePack(loadedPack);
+    refreshInstalledModels(loadedSettings);
   }, []);
 
   const hydratePack = (nextPack: AiKnowledgePack) => {
@@ -113,18 +115,35 @@ const AIAssistantSettings: React.FC = () => {
     setStatusMessage('Configuracao da IA salva neste computador.');
   };
 
+  const getInstalledModelNames = (data: any) => (data.models || [])
+    .map((model: any) => String(model.name || model.model || ''))
+    .filter(Boolean);
+
+  const isModelInstalled = (target: string, installedNames = installedModelNames || []) => installedNames.some((modelName: string) => {
+    return modelName === target || modelName === `${target}:latest`;
+  });
+
+  const refreshInstalledModels = async (targetSettings = settings) => {
+    try {
+      const data = await checkOllama(targetSettings);
+      setInstalledModelNames(getInstalledModelNames(data));
+      return data;
+    } catch {
+      setInstalledModelNames(null);
+      return null;
+    }
+  };
+
   const handleCheck = async () => {
     setStatus('working');
     setStatusMessage('Verificando Ollama local...');
     try {
       const data = await checkOllama(settings);
+      const installedNames = getInstalledModelNames(data);
+      setInstalledModelNames(installedNames);
       const runtime = await checkOllamaRuntime(settings).catch(() => null);
-      const installedNames = (data.models || []).map((model: any) => String(model.name || ''));
-      const isInstalled = (target: string) => installedNames.some((modelName: string) => {
-        return modelName === target || modelName === `${target}:latest`;
-      });
       const selectedModels = getSelectedAiModels(settings);
-      const missingModels = selectedModels.filter(model => !isInstalled(model));
+      const missingModels = selectedModels.filter(model => !isModelInstalled(model, installedNames));
       const runningModels = (runtime?.models || [])
         .map((model: any) => `${model.name || model.model || 'modelo'}: ${model.processor || 'processador nao informado'}`)
         .join(' | ');
@@ -137,6 +156,7 @@ const AIAssistantSettings: React.FC = () => {
         : `Ollama ativo, mas falta baixar: ${missingModels.join(' e ')}.${runtimeMessage}`);
     } catch (err: any) {
       setStatus('offline');
+      setInstalledModelNames(null);
       setStatusMessage(err?.message || 'Ollama nao respondeu neste computador. Baixe e execute o instalador local.');
     }
   };
@@ -151,6 +171,7 @@ const AIAssistantSettings: React.FC = () => {
         setStatusMessage(`Baixando ${model}...`);
         await pullModel(settings, message => setStatusMessage(`${model}: ${message}`), model);
       }
+      await refreshInstalledModels(settings);
       setStatus('online');
       setStatusMessage(`Modelos prontos para uso: ${selectedModels.join(' e ')}.`);
     } catch (err: any) {
@@ -344,6 +365,8 @@ pause
                     key={model.id}
                     model={model}
                     selected={selectedTextModel === model.id}
+                    installed={isModelInstalled(model.id)}
+                    installStatusKnown={installedModelNames !== null}
                     onClick={() => handleSelectTextModel(model.id)}
                   />
                 ))}
@@ -446,7 +469,19 @@ interface ModelOption {
   note: string;
 }
 
-const ModelCard = ({ model, selected, onClick }: { model: ModelOption; selected: boolean; onClick: () => void }) => (
+const ModelCard = ({
+  model,
+  selected,
+  installed,
+  installStatusKnown,
+  onClick
+}: {
+  model: ModelOption;
+  selected: boolean;
+  installed?: boolean;
+  installStatusKnown?: boolean;
+  onClick: () => void;
+}) => (
   <button
     onClick={onClick}
     className={`rounded-2xl border p-4 text-left transition-all ${selected ? 'border-primary bg-blue-50 ring-2 ring-primary/10' : 'border-slate-200 bg-slate-50 hover:border-primary/60 dark:border-slate-700 dark:bg-slate-900'}`}
@@ -464,6 +499,11 @@ const ModelCard = ({ model, selected, onClick }: { model: ModelOption; selected:
       </span>
     </div>
     <div className="mt-3 flex flex-wrap gap-2">
+      {installStatusKnown && (
+        <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${installed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+          {installed ? 'Baixado' : 'Nao baixado'}
+        </span>
+      )}
       <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-slate-500">{model.pcProfile}</span>
       <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-slate-500">{model.ram}</span>
     </div>

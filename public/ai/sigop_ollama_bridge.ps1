@@ -185,6 +185,9 @@ while ($listener.IsListening) {
       $ollamaRequest.Method = $request.HttpMethod
       $ollamaRequest.ContentType = if ($request.ContentType) { $request.ContentType } else { "application/json" }
       $ollamaRequest.Accept = "application/x-ndjson, application/json"
+      $ollamaRequest.Timeout = 900000
+      $ollamaRequest.ReadWriteTimeout = 900000
+      $ollamaRequest.KeepAlive = $false
       $requestBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
       $ollamaRequest.ContentLength = $requestBytes.Length
       $requestStream = $ollamaRequest.GetRequestStream()

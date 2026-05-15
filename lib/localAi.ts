@@ -535,6 +535,9 @@ const formatLocalAiError = (details: string) => {
   try {
     const parsed = JSON.parse(details);
     const rawError = String(parsed.error || details);
+    if (/tempo limite|timeout|timed out|operation has timed out|operation timed out/i.test(rawError)) {
+      return 'A IA local demorou mais que o permitido para iniciar a resposta. Execute o instalador unico atualizado para corrigir a ponte local e tente novamente com uma pergunta menor ou um modelo mais leve.';
+    }
     if (/model runner has unexpectedly stopped/i.test(rawError)) {
       return 'O modelo de IA local parou durante a analise. Isso costuma acontecer por limite de memoria, GPU incompativel ou modelo pesado demais para imagem. Tente voltar para Automatico/Processador, fechar programas pesados ou analisar uma foto menor.';
     }
@@ -548,6 +551,9 @@ const formatLocalAiError = (details: string) => {
     }
     return rawError;
   } catch {
+    if (/tempo limite|timeout|timed out|operation has timed out|operation timed out/i.test(details)) {
+      return 'A IA local demorou mais que o permitido para iniciar a resposta. Execute o instalador unico atualizado para corrigir a ponte local e tente novamente com uma pergunta menor ou um modelo mais leve.';
+    }
     return details;
   }
 };
