@@ -142,7 +142,7 @@ export const isVisionOnlyModel = (model = '') => model.startsWith('moondream');
 export const getTextModel = (settings = loadAiSettings()) => settings.textModel || (isVisionOnlyModel(settings.model) ? RECOMMENDED_TEXT_MODEL : settings.model);
 export const getVisionModel = (settings = loadAiSettings()) => settings.visionModel || settings.model || DEFAULT_VISION_MODEL;
 export const getComputeMode = (settings = loadAiSettings()) => settings.computeMode || DEFAULT_AI_SETTINGS.computeMode || 'auto';
-export const getSelectedAiModels = (settings = loadAiSettings()) => Array.from(new Set([getVisionModel(settings), getTextModel(settings)].filter(Boolean)));
+export const getSelectedAiModels = (settings = loadAiSettings()) => Array.from(new Set([getTextModel(settings)].filter(Boolean)));
 
 type LocalNetworkRequestInit = RequestInit & {
   targetAddressSpace?: 'local' | 'loopback';

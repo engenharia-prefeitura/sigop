@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   DEFAULT_AI_SETTINGS,
   DEFAULT_TEXT_MODEL,
-  DEFAULT_VISION_MODEL,
   RECOMMENDED_TEXT_MODEL,
   applyOllamaComputeMode,
   checkOllama,
@@ -11,7 +10,6 @@ import {
   getComputeMode,
   getSelectedAiModels,
   getTextModel,
-  getVisionModel,
   importKnowledgePackFile,
   loadAiSettings,
   loadKnowledgePack,
@@ -24,45 +22,6 @@ import {
 
 const toLines = (items: string[]) => items.join('\n');
 const fromLines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean);
-
-const VISION_MODELS = [
-  {
-    id: DEFAULT_VISION_MODEL,
-    name: 'Moondream',
-    label: 'Fotos em PC fraco',
-    pcProfile: 'PC simples',
-    ram: '4 GB livres recomendados',
-    disk: 'Aproximadamente 1.7 GB',
-    note: 'Modelo de visao muito leve. Use para fotos; nao e indicado para revisar texto ou conversar sobre laudos.'
-  },
-  {
-    id: 'gemma3:4b',
-    name: 'Gemma 3 4B',
-    label: 'Leve intermediario',
-    pcProfile: '8 a 12 GB RAM',
-    ram: '6 a 8 GB livres recomendados',
-    disk: 'Aproximadamente 3 GB',
-    note: 'Boa opcao intermediaria para texto e imagem, se o computador tiver folga de memoria.'
-  },
-  {
-    id: 'qwen2.5vl:3b',
-    name: 'Qwen2.5-VL 3B',
-    label: 'Melhor visao leve',
-    pcProfile: '16 GB RAM',
-    ram: '10 a 12 GB livres recomendados',
-    disk: 'Aproximadamente 3.2 GB',
-    note: 'Melhor analise visual entre os leves, mas pode falhar em PCs com pouca memoria livre.'
-  },
-  {
-    id: 'qwen2.5vl:7b',
-    name: 'Qwen2.5-VL 7B',
-    label: 'Mais qualidade',
-    pcProfile: '24 a 32 GB RAM',
-    ram: '16 GB livres ou mais',
-    disk: 'Aproximadamente 6 a 8 GB',
-    note: 'Mais pesado. Use apenas em computadores fortes.'
-  }
-];
 
 const TEXT_MODELS = [
   {
@@ -235,13 +194,6 @@ const AIAssistantSettings: React.FC = () => {
     setStatusMessage(`Modelo de texto selecionado: ${textModel}. Baixe o instalador unico novamente para instalar este modelo.`);
   };
 
-  const handleSelectVisionModel = (visionModel: string) => {
-    const nextSettings = { ...settings, model: visionModel, visionModel };
-    setSettings(nextSettings);
-    saveAiSettings(nextSettings);
-    setStatusMessage(`Modelo de fotos selecionado: ${visionModel}. Baixe o instalador unico novamente para instalar este modelo.`);
-  };
-
   const handleSelectComputeMode = async (computeMode: 'auto' | 'cpu' | 'gpu') => {
     const nextSettings = { ...settings, computeMode };
     setSettings(nextSettings);
@@ -260,14 +212,13 @@ const AIAssistantSettings: React.FC = () => {
 
   const downloadInstaller = () => {
     saveAiSettings(settings);
-    const visionModel = getVisionModel(settings);
     const textModel = getTextModel(settings);
     const computeMode = getComputeMode(settings);
     const script = `@echo off
 setlocal
 title SIGOP - Instalador do Assistente IA Local
 
-set "VISION_MODEL=${visionModel}"
+set "VISION_MODEL="
 set "TEXT_MODEL=${textModel}"
 set "COMPUTE_MODE=${computeMode}"
 set "SCRIPT_URL=https://engenharia-prefeitura.github.io/sigop/ai/install_sigop_ai_assistant.ps1"
@@ -279,7 +230,6 @@ echo ============================================================
 echo  SIGOP - Instalador do Assistente IA Local
 echo ============================================================
 echo.
-echo Modelo para fotos: %VISION_MODEL%
 echo Modelo para texto: %TEXT_MODEL%
 echo Modo de execucao: %COMPUTE_MODE%
 echo.
@@ -288,7 +238,7 @@ echo  1. Verificar ou instalar o Ollama
 echo  2. Iniciar o Ollama local
 echo  3. Criar a ponte local do SIGOP
 echo  4. Ativar monitor automatico da ponte
-echo  5. Baixar ou confirmar os modelos escolhidos
+echo  5. Baixar ou confirmar o modelo textual escolhido
 echo  6. Aplicar o modo CPU/GPU escolhido
 echo.
 pause
@@ -330,7 +280,7 @@ pause
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `INSTALAR_ASSISTENTE_IA_SIGOP_${computeMode}_${visionModel.replace(/[^a-z0-9]+/gi, '_')}_${textModel.replace(/[^a-z0-9]+/gi, '_')}.bat`;
+    link.download = `INSTALAR_ASSISTENTE_IA_SIGOP_TEXTO_${computeMode}_${textModel.replace(/[^a-z0-9]+/gi, '_')}.bat`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -338,7 +288,6 @@ pause
   };
 
   const selectedTextModel = getTextModel(settings);
-  const selectedVisionModel = getVisionModel(settings);
   const selectedComputeMode = getComputeMode(settings);
 
   return (
@@ -346,7 +295,7 @@ pause
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-black text-slate-900 dark:text-white">Assistente IA Local</h1>
         <p className="max-w-3xl text-sm font-medium text-slate-500">
-          Configure uma IA gratuita no computador do usuario para apoiar laudos, pericias, relatorios fotograficos e documentos tecnicos. O conhecimento fica local e pode ser exportado ou importado.
+          Configure uma IA gratuita no computador do usuario para apoiar a redacao, revisao e fundamentacao de documentos tecnicos. O conhecimento fica local e pode ser exportado ou importado.
         </p>
       </div>
 
@@ -399,21 +348,6 @@ pause
                   />
                 ))}
               </div>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">Modelo para fotos</label>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {VISION_MODELS.map(model => (
-                  <ModelCard
-                    key={model.id}
-                    model={model}
-                    selected={selectedVisionModel === model.id}
-                    onClick={() => handleSelectVisionModel(model.id)}
-                  />
-                ))}
-              </div>
-              <p className="mt-2 text-[10px] font-bold uppercase text-slate-400">O Moondream fica apenas para fotos. Revisao de laudo e chat usam o modelo de texto selecionado acima.</p>
             </div>
           </div>
 

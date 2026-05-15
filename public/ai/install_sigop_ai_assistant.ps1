@@ -12,8 +12,10 @@ $bridgePath = Join-Path $bridgeDir "sigop_ollama_bridge.ps1"
 $monitorPath = Join-Path $bridgeDir "sigop_ai_bridge_monitor.ps1"
 
 Write-Host "SIGOP - Instalador do Assistente IA Local" -ForegroundColor Cyan
-Write-Host "Modelo para fotos: $Model" -ForegroundColor Cyan
-Write-Host "Modelo para texto: $TextModel" -ForegroundColor Cyan
+if (-not [string]::IsNullOrWhiteSpace($Model)) {
+  Write-Host "Modelo visual legado: $Model" -ForegroundColor Cyan
+}
+Write-Host "Modelo textual: $TextModel" -ForegroundColor Cyan
 Write-Host "Modo de execucao: $ComputeMode" -ForegroundColor Cyan
 
 function Test-Command {
