@@ -31,7 +31,8 @@ function Add-CorsHeaders {
 function Read-RequestBody {
   param($Request)
   if (-not $Request.HasEntityBody) { return $null }
-  $reader = [System.IO.StreamReader]::new($Request.InputStream, $Request.ContentEncoding)
+  $encoding = if ($Request.ContentEncoding) { $Request.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
+  $reader = [System.IO.StreamReader]::new($Request.InputStream, $encoding)
   try {
     return $reader.ReadToEnd()
   } finally {
@@ -42,7 +43,7 @@ function Read-RequestBody {
 function Write-JsonResponse {
   param($Response, [int]$StatusCode, [string]$Json)
   $Response.StatusCode = $StatusCode
-  $Response.ContentType = "application/json"
+  $Response.ContentType = "application/json; charset=utf-8"
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($Json)
   $Response.OutputStream.Write($bytes, 0, $bytes.Length)
 }
@@ -200,7 +201,7 @@ while ($listener.IsListening) {
       $ollamaStreamResponse = $ollamaRequest.GetResponse()
       try {
         $response.StatusCode = [int]$ollamaStreamResponse.StatusCode
-        $response.ContentType = "application/x-ndjson"
+        $response.ContentType = "application/x-ndjson; charset=utf-8"
         $response.SendChunked = $true
         $response.KeepAlive = $false
         $response.Headers["Cache-Control"] = "no-cache"
@@ -221,9 +222,10 @@ while ($listener.IsListening) {
     $response.StatusCode = [int]$ollamaResponse.StatusCode
     $contentType = $ollamaResponse.Headers["Content-Type"]
     if ($contentType) {
+      if ($contentType -notmatch "charset") { $contentType = "$contentType; charset=utf-8" }
       $response.ContentType = $contentType
     } else {
-      $response.ContentType = "application/json"
+      $response.ContentType = "application/json; charset=utf-8"
     }
 
     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($ollamaResponse.Content)
@@ -239,7 +241,7 @@ while ($listener.IsListening) {
     try {
       if ($response -ne $null) {
         $response.StatusCode = 502
-        $response.ContentType = "application/json"
+        $response.ContentType = "application/json; charset=utf-8"
         $message = ($_ | Out-String).Replace("\", "\\").Replace('"', '\"').Replace("`r", "").Replace("`n", "\n")
         $bytes = [System.Text.Encoding]::UTF8.GetBytes("{""error"":""$message""}")
         $response.OutputStream.Write($bytes, 0, $bytes.Length)

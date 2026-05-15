@@ -28,6 +28,11 @@ export interface AiStreamUpdate {
   approximateResponseTokens: number;
 }
 
+export interface AiRequestOptions {
+  numPredict?: number;
+  numCtx?: number;
+}
+
 export interface AiSettings {
   endpoint: string;
   model: string;
@@ -304,10 +309,16 @@ export const chatWithLocalAiDetailed = async (
   settings = loadAiSettings(),
   signal?: AbortSignal,
   modelName = settings.model,
-  onStream?: (update: AiStreamUpdate) => void
+  onStream?: (update: AiStreamUpdate) => void,
+  requestOptions: AiRequestOptions = {}
 ): Promise<AiChatResult> => {
   const hasImages = messages.some(message => Array.isArray(message.images) && message.images.length > 0);
   const shouldStream = !!onStream;
+  const modelOptions = {
+    ...getModelOptions(modelName, hasImages),
+    ...(typeof requestOptions.numPredict === 'number' ? { num_predict: requestOptions.numPredict } : {}),
+    ...(typeof requestOptions.numCtx === 'number' ? { num_ctx: requestOptions.numCtx } : {})
+  };
   let response: Response;
   try {
     response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/api/chat`, {
@@ -319,7 +330,7 @@ export const chatWithLocalAiDetailed = async (
         stream: shouldStream,
         keep_alive: '30s',
         messages,
-        options: getModelOptions(modelName, hasImages)
+        options: modelOptions
       })
     });
   } catch (err: any) {
@@ -385,7 +396,7 @@ export const chatWithLocalAiDetailed = async (
     const metrics = extractAiMetrics(finalEvent);
 
     if (!text) {
-      return chatWithLocalAiDetailed(messages, settings, signal, modelName);
+      return chatWithLocalAiDetailed(messages, settings, signal, modelName, undefined, requestOptions);
     }
 
     if (isDegenerateResponse(text)) {
@@ -442,8 +453,8 @@ const getModelOptions = (model: string, hasImages = false) => {
 
   if (model.startsWith('qwen2.5:0.5b') || model.startsWith('smollm2:360m')) {
     return {
-      num_predict: 800,
-      num_ctx: 3072,
+      num_predict: 1200,
+      num_ctx: 4096,
       num_thread: 2,
       temperature: 0.2,
       repeat_penalty: 1.18,
@@ -520,6 +531,8 @@ const repairMojibake = (value: string) => {
     return decodeURIComponent(encoded);
   } catch {
     return value
+      .replace(/Ã(?=s(?:\s|\d|h|$))/g, 'à')
+      .replace(/Ã[\u00a0 ]/g, 'à')
       .replace(/Ã§/g, 'ç')
       .replace(/Ã£/g, 'ã')
       .replace(/Ãµ/g, 'õ')

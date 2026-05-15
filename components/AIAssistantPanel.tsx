@@ -8,6 +8,7 @@ import {
   getTextModel,
   loadAiSettings,
   loadKnowledgePack,
+  type AiRequestOptions,
   type AiUsageMetrics,
   type AiChatMessage
 } from '../lib/localAi';
@@ -134,6 +135,8 @@ const repairMojibake = (value: string) => {
     return decodeURIComponent(encoded);
   } catch {
     return value
+      .replace(/Ã(?=s(?:\s|\d|h|$))/g, 'à')
+      .replace(/Ã[\u00a0 ]/g, 'à')
       .replace(/Ã§/g, 'ç')
       .replace(/Ã£/g, 'ã')
       .replace(/Ãµ/g, 'õ')
@@ -176,6 +179,17 @@ const sanitizeMessagesForStorage = (items: ChatMessage[]) => items
   .slice(-80)
   .map(message => ({
     ...message,
+    content: repairMojibake(String(message.content || '')),
+    actions: message.actions?.map(action => ({
+      ...action,
+      label: repairMojibake(String(action.label || '')),
+      ...(action.type === 'insert' ? { title: repairMojibake(String(action.title || 'Nova secao')) } : {})
+    })),
+    proposals: message.proposals?.map(proposal => ({
+      ...proposal,
+      sectionTitle: repairMojibake(String(proposal.sectionTitle || 'Secao')),
+      content: repairMojibake(String(proposal.content || ''))
+    })),
     streaming: false,
     liveApproxTokens: undefined
   }));
@@ -282,6 +296,12 @@ const isGeneralReviewRequest = (text: string) => {
   return /(revisao geral|revisar documento|revisar tudo|todas as secoes|secoes existentes|documento inteiro|texto geral)/.test(normalized);
 };
 
+const looksLikeDocumentMutationRequest = (text: string) => {
+  const normalized = normalizeText(text);
+  return /(gerar|gere|criar|crie|elaborar|elabore|montar|monte|fazer|faca|produzir|produza|redigir|redija|organizar|organize|transformar|transforme|melhorar|melhore|revisar|revise|corrigir|corrija|complementar|complemente|alterar|altere|atualizar|atualize)/.test(normalized)
+    && /(documento|secao|secoes|texto|laudo|relatorio|parecer|conclusao|analise|manifestacao|encaminhamento|vistoria)/.test(normalized);
+};
+
 const getField = (block: string, label: string) => {
   const labels = ['TIPO', 'ID', 'TITULO', 'TEXTO', 'RESUMO'];
   const nextLabels = labels.filter(item => item !== label).join('|');
@@ -298,7 +318,69 @@ const stripProposalSyntax = (text: string) => text
   .replace(/\[(?:\/)?(?:PROPOSTA_SECAO|PROPOSTA_REVISAO|PROPOSTA_NOVA_SECAO|PROPOSED SECOES|PROPOSTA SECAO)\]/gi, '')
   .trim();
 
-const parseSectionProposals = (rawText: string, sections: any[]) => {
+const cleanupLooseSectionContent = (value: string) => repairMojibake(value)
+  .replace(/\n?Tokens:\s*entrada[\s\S]*$/i, '')
+  .replace(/^\s*[-*]\s*\*\*Descri[cç][aã]o:\*\*\s*/i, '')
+  .replace(/^\s*[-*]\s*/gm, '')
+  .replace(/\*\*/g, '')
+  .replace(/#{1,6}/g, '')
+  .replace(/[ \t]+\n/g, '\n')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
+const parseLooseNumberedSections = (
+  rawText: string,
+  sections: any[],
+  mode: ProposalMode | false
+): SectionProposal[] => {
+  const text = repairMojibake(rawText)
+    .replace(/\r\n/g, '\n')
+    .replace(/([^\n#])(#{1,6}\s*\d+\s*[\.\)-])/g, '$1\n$2')
+    .replace(/([^\n#])(\d+\s*[\.\)-]\s*\*\*)/g, '$1\n$2');
+  const normalized = normalizeText(text);
+  const hasSectionCue = /(nova|novas|proposta|propostas|sugerida|sugeridas|substituir|substituicao|revisao|secoes|secao)/.test(normalized);
+  if (!mode && !hasSectionCue) return [];
+
+  const headingRegex = /(?:^|\n)\s*(?:#{1,6}\s*)?\d+\s*[\.\)-]\s*(?:\*\*)?\s*([^:\n*]{3,90})\s*:?\s*(?:\*\*)?\s*/g;
+  const matches = Array.from(text.matchAll(headingRegex));
+  if (matches.length < 1) return [];
+
+  return matches.reduce<SectionProposal[]>((items, match, index) => {
+    const title = repairMojibake(String(match[1] || '')).replace(/[*#]/g, '').trim();
+    if (!title || /^(tarefa|resumo|observacao|observacoes)$/i.test(normalizeText(title))) return items;
+
+    const start = (match.index || 0) + match[0].length;
+    const end = index + 1 < matches.length ? (matches[index + 1].index || text.length) : text.length;
+    const content = cleanupLooseSectionContent(text.slice(start, end));
+    if (!content || normalizeText(content) === normalizeText(title)) return items;
+
+    const target = sections.find(section => normalizeText(String(section.title || '')) === normalizeText(title));
+    const shouldReplace = mode === 'replace' || (mode === 'mixed' && !!target);
+
+    if (shouldReplace && target) {
+      items.push({
+        id: makeId(),
+        type: 'replace',
+        sectionId: Number(target.id),
+        sectionTitle: String(target.title || title),
+        content,
+        status: 'pending'
+      });
+    } else if (mode !== 'replace') {
+      items.push({
+        id: makeId(),
+        type: 'insert',
+        sectionTitle: title,
+        content,
+        status: 'pending'
+      });
+    }
+
+    return items;
+  }, []);
+};
+
+const parseSectionProposals = (rawText: string, sections: any[], mode: ProposalMode | false = false) => {
   const proposals: SectionProposal[] = [];
   const normalizedRaw = repairMojibake(rawText);
   const blockRegex = /\[(PROPOSTA_SECAO|PROPOSTA_REVISAO|PROPOSTA_NOVA_SECAO)\]([\s\S]*?)\[\/\1\]/gi;
@@ -361,6 +443,11 @@ const parseSectionProposals = (rawText: string, sections: any[]) => {
     displayText = normalizedRaw.split(/\[(?:PROPOSED SECOES|PROPOSTA SECAO)\]/i)[0].trim();
   }
 
+  if (!proposals.length) {
+    proposals.push(...parseLooseNumberedSections(normalizedRaw, sections, mode));
+    if (proposals.length) displayText = '';
+  }
+
   displayText = stripProposalSyntax(displayText)
     .replace(/^RESUMO\s*:\s*/i, '')
     .trim();
@@ -395,6 +482,30 @@ const formatLiveUsage = (message: ChatMessage, elapsedSeconds: number) => {
   return message.liveApproxTokens
     ? `Gerando resposta... aprox. ${approx} tokens | ${elapsedSeconds}s`
     : `Aguardando o modelo local... ${elapsedSeconds}s`;
+};
+
+const getAssistantRequestOptions = (
+  model: string,
+  proposalMode: ProposalMode | false,
+  replacementMode: boolean
+): AiRequestOptions => {
+  const isSmallModel = model.startsWith('qwen2.5:0.5b') || model.startsWith('smollm2:360m');
+  if (proposalMode) {
+    return {
+      numPredict: isSmallModel ? 1500 : 2400,
+      numCtx: isSmallModel ? 4096 : 6144
+    };
+  }
+  if (replacementMode) {
+    return {
+      numPredict: isSmallModel ? 1000 : 1400,
+      numCtx: isSmallModel ? 4096 : 6144
+    };
+  }
+  return {
+    numPredict: isSmallModel ? 1200 : 1800,
+    numCtx: isSmallModel ? 4096 : 6144
+  };
 };
 
 const buildDocumentText = (context: AIAssistantPanelProps['documentContext']) => {
@@ -451,6 +562,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const [minimized, setMinimized] = useState(loadPanelMinimized);
   const [loading, setLoading] = useState(false);
   const [selectedSectionId, setSelectedSectionId] = useState<number | ''>('');
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -553,7 +665,10 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     replacementMode = false,
     proposalMode: ProposalMode | false = false
   ): AiChatMessage[] => {
-    const documentTextLimit = textModel.startsWith('qwen2.5:0.5b') || textModel.startsWith('smollm2:360m') ? 4200 : 7000;
+    const isSmallModel = textModel.startsWith('qwen2.5:0.5b') || textModel.startsWith('smollm2:360m');
+    const documentTextLimit = proposalMode
+      ? (isSmallModel ? 3200 : 5600)
+      : (isSmallModel ? 3800 : 6500);
     const documentText = buildDocumentText(documentContext).slice(0, documentTextLimit);
     const chatHistory = proposalMode ? '' : formatChatHistory(history);
     const sectionText = targetSection
@@ -568,7 +683,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       ? '- Pode propor substituicoes e novas secoes quando forem claramente necessarias.\n'
       : '';
     const proposalInstruction = proposalMode
-      ? `TAREFA:\n${instruction}\n\nFORMATO OBRIGATORIO:\nComece com RESUMO: uma frase curta.\n\nPara alterar uma secao existente, use um bloco por secao exatamente assim:\n[PROPOSTA_REVISAO]\nID: numero da secao existente\nTITULO: titulo da secao existente\nTEXTO:\ntexto completo revisado para substituir apenas esta secao\n[/PROPOSTA_REVISAO]\n\nPara criar uma nova secao, use um bloco exatamente assim:\n[PROPOSTA_NOVA_SECAO]\nTITULO: titulo da nova secao\nTEXTO:\ntexto completo da nova secao\n[/PROPOSTA_NOVA_SECAO]\n\nREGRAS:\n${proposalModeRule}- Use apenas os fatos existentes no documento.\n- Nao copie o documento inteiro.\n- Nao repita o RESUMO.\n- Nao gere a mesma proposta mais de uma vez.\n- Cada TEXTO deve ter no maximo 2 paragrafos curtos.\n- Nao escreva colchetes ou marcadores fora dos blocos acima.\n- Nao use formato em ingles.\n- Se nao houver proposta segura, responda apenas o resumo explicando a lacuna.`
+      ? `TAREFA:\n${instruction}\n\nFORMATO OBRIGATORIO PARA O SIGOP CRIAR BOTOES:\nComece com RESUMO: uma frase curta.\n\nPara alterar uma secao existente, use um bloco por secao exatamente assim:\n[PROPOSTA_REVISAO]\nID: numero da secao existente\nTITULO: titulo da secao existente\nTEXTO:\ntexto final para substituir apenas esta secao\n[/PROPOSTA_REVISAO]\n\nPara criar uma nova secao, use um bloco exatamente assim:\n[PROPOSTA_NOVA_SECAO]\nTITULO: titulo da nova secao\nTEXTO:\ntexto final da nova secao\n[/PROPOSTA_NOVA_SECAO]\n\nREGRAS:\n${proposalModeRule}- Use apenas os fatos existentes no documento.\n- Nao copie o documento inteiro.\n- Nao repita o RESUMO.\n- Nao gere a mesma proposta mais de uma vez.\n- Cada TEXTO deve ter no maximo 2 paragrafos curtos.\n- Nao use listas numeradas de secoes fora dos blocos.\n- Nao peca para o usuario aplicar manualmente.\n- Se nao houver proposta segura, responda apenas o resumo explicando a lacuna.`
       : '';
 
     return [
@@ -583,7 +698,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           ? proposalInstruction
           : replacementMode
           ? `TAREFA:\n${instruction}\n\nResponda SOMENTE com o novo texto da secao, pronto para substituir a secao selecionada. Nao inclua titulo, justificativa, markdown ou avisos.`
-          : `TAREFA:\n${instruction}\n\nResponda de forma objetiva e completa. Se sugerir alteracao, pergunte no final se o usuario deseja aplicar.`
+          : `TAREFA:\n${instruction}\n\nResponda de forma objetiva e curta. Se a tarefa pedir alteracao no documento, informe que o SIGOP pode gerar botoes quando o pedido citar criar, substituir, revisar ou complementar secoes.`
       }
     ];
   };
@@ -617,6 +732,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     try {
       const proposalMode = options.proposalMode === true ? 'replace' : options.proposalMode || false;
       const requestMessages = buildMessages(instruction, previousMessages, targetSection, !!options.replacementMode, proposalMode);
+      const requestOptions = getAssistantRequestOptions(textModel, proposalMode, !!options.replacementMode);
       assistantMessageId = makeId();
       pushMessage({
         id: assistantMessageId,
@@ -642,7 +758,8 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
               }
               : message
           )));
-        }
+        },
+        requestOptions
       );
       const actions: AssistantAction[] = [];
 
@@ -650,7 +767,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       let proposals: SectionProposal[] = [];
 
       if (options.proposalMode) {
-        const parsed = parseSectionProposals(response.text, textSections);
+        const parsed = parseSectionProposals(response.text, textSections, proposalMode);
         content = parsed.displayText;
         proposals = parsed.proposals;
         const looseInsert = proposalMode && proposalMode !== 'replace'
@@ -784,6 +901,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       return;
     }
 
+    if (looksLikeDocumentMutationRequest(prompt)) {
+      await runAssistant(prompt, { displayText: prompt, proposalMode: 'mixed' });
+      return;
+    }
+
     await runAssistant(prompt);
   };
 
@@ -866,6 +988,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
   const runInsertCommand = (label: string, instruction: string, title: string) => {
     runAssistant(instruction, { displayText: label, insertTitle: title, proposalMode: 'insert' });
+  };
+
+  const runFromOptions = (action: () => void) => {
+    setOptionsOpen(false);
+    action();
   };
 
   const switchConversation = (conversationId: string) => {
@@ -951,95 +1078,131 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         className="absolute left-0 top-0 z-10 h-full w-2 cursor-ew-resize bg-transparent hover:bg-primary/20"
         title="Arraste para ajustar a largura"
       />
-      <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-black text-slate-900">Assistente IA</h2>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-500">texto</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-base font-black text-slate-900">Assistente IA</h2>
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-500">texto</span>
           </div>
-          <p className={`mt-1 line-clamp-2 text-xs font-bold ${status === 'online' ? 'text-emerald-600' : status === 'checking' ? 'text-amber-600' : 'text-red-500'}`}>
+          <p className={`mt-0.5 truncate text-[11px] font-bold ${status === 'online' ? 'text-emerald-600' : status === 'checking' ? 'text-amber-600' : 'text-red-500'}`}>
             {statusMessage || 'Verificando IA local...'}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            onClick={() => setOptionsOpen(value => !value)}
+            className={`rounded-full p-2 ${optionsOpen ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}
+            title="Opcoes do assistente"
+            aria-expanded={optionsOpen}
+          >
+            <span className="material-symbols-outlined text-[20px]">tune</span>
+          </button>
           <button onClick={() => setPanelMinimized(true)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Minimizar">
-            <span className="material-symbols-outlined">remove</span>
+            <span className="material-symbols-outlined text-[20px]">remove</span>
           </button>
           <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Fechar">
-            <span className="material-symbols-outlined">close</span>
+            <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
       </div>
 
-      <div className="border-b border-slate-100 px-5 py-3">
-        <div className="flex flex-wrap gap-2">
-          <select
-            value={activeConversationId}
-            onChange={event => switchConversation(event.target.value)}
-            disabled={loading}
-            className="min-w-[180px] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold disabled:opacity-60"
-          >
-            {conversationStore.conversations.map(conversation => (
-              <option key={conversation.id} value={conversation.id}>
-                {conversation.title} - {new Date(conversation.updatedAt).toLocaleDateString('pt-BR')}
-              </option>
-            ))}
-          </select>
-          <button
-            disabled={loading}
-            onClick={startNewConversation}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
-          >
-            Nova conversa
-          </button>
-        </div>
-      </div>
+      {optionsOpen && (
+        <div className="absolute right-4 top-[70px] z-20 flex max-h-[calc(100vh-5.75rem)] w-[min(430px,calc(100%-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase text-slate-900">Opcoes</p>
+              <p className="truncate text-[10px] font-bold uppercase text-slate-400">{activeConversation?.title || 'Conversa atual'}</p>
+            </div>
+            <button onClick={() => setOptionsOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Fechar opcoes">
+              <span className="material-symbols-outlined text-[18px]">close</span>
+            </button>
+          </div>
 
-      <div className="border-b border-slate-100 px-5 py-3">
-        <div className="mb-3 flex gap-2">
-          <select
-            value={selectedSectionId}
-            onChange={event => setSelectedSectionId(event.target.value ? Number(event.target.value) : '')}
-            className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold"
-          >
-            <option value="">Escolha uma secao para melhorar</option>
-            {textSections.map(section => (
-              <option key={section.id} value={section.id}>{section.title}</option>
-            ))}
-          </select>
-          <button
-            disabled={loading || status !== 'online' || disabled || !selectedSection}
-            onClick={improveSelectedSection}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black uppercase text-white disabled:opacity-50"
-          >
-            Melhorar
-          </button>
-        </div>
+          <div className="space-y-4 overflow-y-auto p-4">
+            <section>
+              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-400">Conversa</label>
+              <div className="flex gap-2">
+                <select
+                  value={activeConversationId}
+                  onChange={event => switchConversation(event.target.value)}
+                  disabled={loading}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold disabled:opacity-60"
+                >
+                  {conversationStore.conversations.map(conversation => (
+                    <option key={conversation.id} value={conversation.id}>
+                      {conversation.title} - {new Date(conversation.updatedAt).toLocaleDateString('pt-BR')}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  disabled={loading}
+                  onClick={() => runFromOptions(startNewConversation)}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
+                >
+                  Nova
+                </button>
+              </div>
+            </section>
 
-        <div className="grid grid-cols-3 gap-2">
-          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(REVIEW_INSTRUCTION, { displayText: 'Revisar documento', proposalMode: 'replace' })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
-            Revisar
-          </button>
-          <button disabled={loading || status !== 'online'} onClick={() => runInsertCommand('Gerar parecer', OPINION_INSTRUCTION, 'Parecer Tecnico')} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
-            Parecer
-          </button>
-          <button disabled={loading || status !== 'online'} onClick={() => runInsertCommand('Gerar relatorio', REPORT_INSTRUCTION, 'Relatorio Tecnico')} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
-            Relatorio
-          </button>
-          <button disabled={loading || status !== 'online'} onClick={() => runInsertCommand('Criar conclusao', CONCLUSION_INSTRUCTION, 'Conclusao')} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
-            Conclusao
-          </button>
-          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(PENDING_INSTRUCTION, { displayText: 'Sugerir pendencias' })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
-            Pendencias
-          </button>
-          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(IMPROVE_TEXT_INSTRUCTION, { displayText: 'Melhorar texto geral', proposalMode: 'replace' })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
-            Texto geral
-          </button>
-          <button disabled={loading || status !== 'online'} onClick={() => runAssistant(COMPLEMENT_INSTRUCTION, { displayText: 'Complementar documento', proposalMode: 'insert' })} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
-            Complementar
-          </button>
+            <section>
+              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-400">Secao alvo</label>
+              <div className="flex gap-2">
+                <select
+                  value={selectedSectionId}
+                  onChange={event => setSelectedSectionId(event.target.value ? Number(event.target.value) : '')}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold"
+                >
+                  <option value="">Escolha uma secao para melhorar</option>
+                  {textSections.map(section => (
+                    <option key={section.id} value={section.id}>{section.title}</option>
+                  ))}
+                </select>
+                <button
+                  disabled={loading || status !== 'online' || disabled || !selectedSection}
+                  onClick={() => runFromOptions(improveSelectedSection)}
+                  className="rounded-xl bg-slate-900 px-3 py-2 text-[10px] font-black uppercase text-white disabled:opacity-50"
+                >
+                  Melhorar
+                </button>
+              </div>
+            </section>
+
+            <section>
+              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-400">Comandos prontos</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runAssistant(REVIEW_INSTRUCTION, { displayText: 'Revisar documento', proposalMode: 'replace' }))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                  Revisar
+                </button>
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runInsertCommand('Gerar parecer', OPINION_INSTRUCTION, 'Parecer Tecnico'))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                  Parecer
+                </button>
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runInsertCommand('Gerar relatorio', REPORT_INSTRUCTION, 'Relatorio Tecnico'))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                  Relatorio
+                </button>
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runInsertCommand('Criar conclusao', CONCLUSION_INSTRUCTION, 'Conclusao'))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                  Conclusao
+                </button>
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runAssistant(PENDING_INSTRUCTION, { displayText: 'Sugerir pendencias' }))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                  Pendencias
+                </button>
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runAssistant(IMPROVE_TEXT_INSTRUCTION, { displayText: 'Melhorar texto geral', proposalMode: 'replace' }))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                  Texto geral
+                </button>
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runAssistant(COMPLEMENT_INSTRUCTION, { displayText: 'Complementar documento', proposalMode: 'insert' }))} className="col-span-2 rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                  Complementar documento
+                </button>
+              </div>
+            </section>
+
+            <section>
+              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-400">Conhecimento local</label>
+              <button onClick={exportKnowledgePack} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary">
+                Exportar conhecimento
+              </button>
+            </section>
+          </div>
         </div>
-      </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-slate-50/60 px-5 py-4">
         {status !== 'online' && (
@@ -1050,13 +1213,13 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
         {messages.length === 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-600">
-            Descreva o que deseja no campo abaixo ou use um comando acima. Eu trabalho apenas com o texto do documento e posso revisar secoes, sugerir melhorias, gerar parecer, relatorio ou conclusao.
+            Descreva o que deseja no campo abaixo. Para comandos prontos, conversas salvas, secao alvo e conhecimento local, abra Opcoes no topo.
           </div>
         )}
 
         {messages.map(message => (
           <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${message.role === 'user' ? 'bg-primary text-white' : 'bg-white text-slate-800 border border-slate-200'}`}>
+            <div className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${message.role === 'user' ? 'bg-primary text-white' : 'bg-white text-slate-800 border border-slate-200'}`}>
               <div className="whitespace-pre-wrap">{message.content}</div>
               {message.role === 'assistant' && formatLiveUsage(message, elapsedSeconds) && (
                 <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-bold uppercase text-blue-500">
@@ -1166,11 +1329,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         )}
       </div>
 
-      <div className="border-t border-slate-100 bg-white p-4">
+      <div className="border-t border-slate-100 bg-white p-3">
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm focus-within:ring-2 focus-within:ring-primary/15">
           <textarea
-            className="h-28 w-full resize-none rounded-t-2xl border-0 p-4 text-sm outline-none focus:ring-0"
-            placeholder="Peça como se estivesse falando com um assistente: melhore esta seção, gere um parecer, deixe mais formal, aponte lacunas..."
+            className="h-20 w-full resize-none rounded-t-2xl border-0 p-3 text-sm outline-none focus:ring-0"
+            placeholder="Peca uma revisao, uma nova secao, um parecer, ou uma substituicao..."
             value={input}
             onChange={event => setInput(event.target.value)}
             onKeyDown={event => {
@@ -1181,8 +1344,8 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
             }}
           />
           <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2">
-            <button onClick={exportKnowledgePack} className="rounded-lg px-2 py-1 text-[10px] font-black uppercase text-slate-400 hover:bg-slate-50 hover:text-slate-700">
-              Exportar conhecimento
+            <button onClick={() => setOptionsOpen(true)} className="rounded-lg px-2 py-1 text-[10px] font-black uppercase text-slate-400 hover:bg-slate-50 hover:text-slate-700">
+              Opcoes
             </button>
             <button
               disabled={loading || status !== 'online' || !input.trim()}
