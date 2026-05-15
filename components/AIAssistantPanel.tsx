@@ -36,6 +36,8 @@ type ChatMessage = AiChatMessage & {
   actions?: AssistantAction[];
   applied?: boolean;
   metrics?: AiUsageMetrics;
+  streaming?: boolean;
+  liveApproxTokens?: number;
 };
 
 const SYSTEM_PROMPT = `
@@ -112,6 +114,12 @@ const formatUsageMetrics = (metrics?: AiUsageMetrics) => {
   return parts.length ? `Tokens: ${parts.join(' | ')}` : '';
 };
 
+const formatLiveUsage = (message: ChatMessage, elapsedSeconds: number) => {
+  if (!message.streaming) return '';
+  const approx = message.liveApproxTokens || Math.max(1, Math.ceil((message.content || '').length / 4));
+  return `Gerando resposta... aprox. ${approx} tokens | ${elapsedSeconds}s`;
+};
+
 const buildDocumentText = (context: AIAssistantPanelProps['documentContext']) => {
   const sectionText = context.sections
     .filter(section => section.type !== 'photos')
@@ -168,6 +176,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const textSections = documentContext.sections.filter(section => section.type !== 'photos');
   const textModel = getTextModel(settings);
   const selectedSection = textSections.find(section => section.id === selectedSectionId);
+  const hasStreamingMessage = messages.some(message => message.streaming);
 
   useEffect(() => {
     if (!loading) return;
@@ -254,10 +263,37 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       role: 'user',
       content: options.displayText || instruction
     });
+    let assistantMessageId = '';
 
     try {
       const requestMessages = buildMessages(instruction, previousMessages, targetSection, !!options.replacementMode);
-      const response = await chatWithLocalAiDetailed(requestMessages, settings, controller.signal, textModel);
+      assistantMessageId = makeId();
+      pushMessage({
+        id: assistantMessageId,
+        role: 'assistant',
+        content: 'Preparando resposta...',
+        streaming: true,
+        liveApproxTokens: 0
+      });
+
+      const response = await chatWithLocalAiDetailed(
+        requestMessages,
+        settings,
+        controller.signal,
+        textModel,
+        update => {
+          setMessages(current => current.map(message => (
+            message.id === assistantMessageId
+              ? {
+                ...message,
+                content: update.text || 'Recebendo resposta...',
+                liveApproxTokens: update.approximateResponseTokens,
+                streaming: true
+              }
+              : message
+          )));
+        }
+      );
       const actions: AssistantAction[] = [];
 
       if (options.replacementMode && targetSection) {
@@ -266,21 +302,42 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         actions.push({ type: 'insert', label: 'Inserir como nova secao', title: options.insertTitle });
       }
 
-      pushMessage({
-        id: makeId(),
-        role: 'assistant',
-        content: response.text,
-        metrics: response.metrics,
-        actions
-      });
+      setMessages(current => current.map(message => (
+        message.id === assistantMessageId
+          ? {
+            ...message,
+            content: response.text,
+            metrics: response.metrics,
+            actions,
+            streaming: false,
+            liveApproxTokens: undefined
+          }
+          : message
+      )));
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         setStatusMessage('Solicitacao cancelada.');
-        pushMessage({ id: makeId(), role: 'assistant', content: 'Solicitacao cancelada.' });
+        if (assistantMessageId) {
+          setMessages(current => current.map(message => (
+            message.id === assistantMessageId
+              ? { ...message, content: 'Solicitacao cancelada.', streaming: false, liveApproxTokens: undefined }
+              : message
+          )));
+        } else {
+          pushMessage({ id: makeId(), role: 'assistant', content: 'Solicitacao cancelada.' });
+        }
       } else {
         const message = err.message || 'Falha ao acessar a IA local.';
         setStatusMessage(message);
-        pushMessage({ id: makeId(), role: 'assistant', content: message });
+        if (assistantMessageId) {
+          setMessages(current => current.map(item => (
+            item.id === assistantMessageId
+              ? { ...item, content: message, streaming: false, liveApproxTokens: undefined }
+              : item
+          )));
+        } else {
+          pushMessage({ id: makeId(), role: 'assistant', content: message });
+        }
         if (/modelo.*parou|runner.*parou|resource|recurso|memoria|memory/i.test(message)) {
           setStatus('online');
         } else {
@@ -420,6 +477,11 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${message.role === 'user' ? 'bg-primary text-white' : 'bg-white text-slate-800 border border-slate-200'}`}>
               <div className="whitespace-pre-wrap">{message.content}</div>
+              {message.role === 'assistant' && formatLiveUsage(message, elapsedSeconds) && (
+                <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-bold uppercase text-blue-500">
+                  {formatLiveUsage(message, elapsedSeconds)}
+                </div>
+              )}
               {message.role === 'assistant' && formatUsageMetrics(message.metrics) && (
                 <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-bold uppercase text-slate-400">
                   {formatUsageMetrics(message.metrics)}
@@ -443,7 +505,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           </div>
         ))}
 
-        {loading && (
+        {loading && !hasStreamingMessage && (
           <div className="flex justify-start">
             <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-500 shadow-sm">
               Pensando... {elapsedSeconds}s

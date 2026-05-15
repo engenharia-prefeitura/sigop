@@ -22,6 +22,12 @@ export interface AiChatResult {
   metrics: AiUsageMetrics;
 }
 
+export interface AiStreamUpdate {
+  text: string;
+  chunk: string;
+  approximateResponseTokens: number;
+}
+
 export interface AiSettings {
   endpoint: string;
   model: string;
@@ -297,9 +303,11 @@ export const chatWithLocalAiDetailed = async (
   messages: AiChatMessage[],
   settings = loadAiSettings(),
   signal?: AbortSignal,
-  modelName = settings.model
+  modelName = settings.model,
+  onStream?: (update: AiStreamUpdate) => void
 ): Promise<AiChatResult> => {
   const hasImages = messages.some(message => Array.isArray(message.images) && message.images.length > 0);
+  const shouldStream = !!onStream;
   let response: Response;
   try {
     response = await localNetworkFetch(`${settings.endpoint.replace(/\/$/, '')}/api/chat`, {
@@ -308,7 +316,7 @@ export const chatWithLocalAiDetailed = async (
       signal,
       body: JSON.stringify({
         model: modelName,
-        stream: false,
+        stream: shouldStream,
         keep_alive: '30s',
         messages,
         options: getModelOptions(modelName, hasImages)
@@ -322,6 +330,69 @@ export const chatWithLocalAiDetailed = async (
   if (!response.ok) {
     const details = await response.text().catch(() => '');
     throw new Error(formatLocalAiError(details) || 'Falha ao conversar com a IA local.');
+  }
+
+  if (shouldStream) {
+    if (!response.body) {
+      throw new Error('A IA local nao abriu o fluxo de resposta. Tente novamente.');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let accumulated = '';
+    let finalEvent: any = {};
+
+    const handleLine = (line: string) => {
+      if (!line.trim()) return;
+      const event = JSON.parse(line);
+      const chunk = extractAiResponseText(event);
+      if (chunk) {
+        accumulated += chunk;
+        onStream?.({
+          text: accumulated,
+          chunk,
+          approximateResponseTokens: Math.max(1, Math.ceil(accumulated.length / 4))
+        });
+      }
+      if (event?.done) finalEvent = event;
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        try {
+          handleLine(line);
+        } catch {
+          // Ignore malformed partial stream lines and continue reading.
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      try {
+        handleLine(buffer);
+      } catch {
+        // Final partial line may be incomplete; accumulated text is still usable.
+      }
+    }
+
+    const text = normalizeAiResponse(accumulated || extractAiResponseText(finalEvent));
+    const metrics = extractAiMetrics(finalEvent);
+
+    if (!text) {
+      throw new Error('A IA local respondeu, mas nao enviou texto aproveitavel. Tente novamente com uma pergunta mais curta ou escolha outro modelo.');
+    }
+
+    if (isDegenerateResponse(text)) {
+      throw new Error('A IA local gerou uma resposta repetitiva ou incompleta. Em computador muito fraco, tente uma foto por vez, reduza a pergunta ou selecione um modelo mais estavel.');
+    }
+
+    return { text, metrics };
   }
 
   const data = await response.json();
