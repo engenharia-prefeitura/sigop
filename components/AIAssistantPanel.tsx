@@ -53,6 +53,28 @@ type ChatMessage = AiChatMessage & {
   liveApproxTokens?: number;
 };
 
+interface StoredAiConversation {
+  id: string;
+  title: string;
+  documentTitle: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+}
+
+interface AiConversationStore {
+  activeId: string;
+  conversations: StoredAiConversation[];
+}
+
+const AI_CONVERSATIONS_KEY = 'sigop_ai_conversations_v1';
+const AI_PANEL_WIDTH_KEY = 'sigop_ai_panel_width';
+const AI_PANEL_MINIMIZED_KEY = 'sigop_ai_panel_minimized';
+const DEFAULT_PANEL_WIDTH = 640;
+const MIN_PANEL_WIDTH = 420;
+const MAX_PANEL_WIDTH = 980;
+const MAX_STORED_CONVERSATIONS = 30;
+
 const SYSTEM_PROMPT = `
 Voce e um assistente tecnico local do SIGOP para apoiar a elaboracao de documentos de engenharia publica, pareceres, laudos, relatorios e conclusoes.
 Voce trabalha somente com texto. Nao analise imagens e nao afirme que viu fotos.
@@ -147,6 +169,79 @@ const toHtml = (text: string) => text
   .replace(/\n/g, '<br/>');
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const sanitizeMessagesForStorage = (items: ChatMessage[]) => items
+  .slice(-80)
+  .map(message => ({
+    ...message,
+    streaming: false,
+    liveApproxTokens: undefined
+  }));
+
+const conversationTitleFromMessages = (items: ChatMessage[], fallback: string) => {
+  const firstUserMessage = items.find(message => message.role === 'user' && message.content.trim());
+  return repairMojibake(firstUserMessage?.content || fallback || 'Nova conversa').slice(0, 64);
+};
+
+const createStoredConversation = (documentTitle = ''): StoredAiConversation => {
+  const now = new Date().toISOString();
+  return {
+    id: makeId(),
+    title: documentTitle ? `Conversa - ${repairMojibake(documentTitle).slice(0, 42)}` : 'Nova conversa',
+    documentTitle: repairMojibake(documentTitle || ''),
+    createdAt: now,
+    updatedAt: now,
+    messages: []
+  };
+};
+
+const loadConversationStore = (): AiConversationStore => {
+  try {
+    const raw = localStorage.getItem(AI_CONVERSATIONS_KEY);
+    if (!raw) return { activeId: '', conversations: [] };
+    const parsed = JSON.parse(raw);
+    const conversations = Array.isArray(parsed?.conversations)
+      ? parsed.conversations.map((conversation: any) => ({
+        id: String(conversation.id || makeId()),
+        title: repairMojibake(String(conversation.title || 'Nova conversa')),
+        documentTitle: repairMojibake(String(conversation.documentTitle || '')),
+        createdAt: String(conversation.createdAt || new Date().toISOString()),
+        updatedAt: String(conversation.updatedAt || new Date().toISOString()),
+        messages: sanitizeMessagesForStorage(Array.isArray(conversation.messages) ? conversation.messages : [])
+      }))
+      : [];
+    return {
+      activeId: String(parsed?.activeId || conversations[0]?.id || ''),
+      conversations
+    };
+  } catch {
+    return { activeId: '', conversations: [] };
+  }
+};
+
+const saveConversationStore = (store: AiConversationStore) => {
+  try {
+    localStorage.setItem(AI_CONVERSATIONS_KEY, JSON.stringify(store));
+  } catch {}
+};
+
+const loadPanelWidth = () => {
+  try {
+    return clamp(Number(localStorage.getItem(AI_PANEL_WIDTH_KEY)) || DEFAULT_PANEL_WIDTH, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
+  } catch {
+    return DEFAULT_PANEL_WIDTH;
+  }
+};
+
+const loadPanelMinimized = () => {
+  try {
+    return localStorage.getItem(AI_PANEL_MINIMIZED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
 
 const normalizeText = (value: string) => value
   .toLowerCase()
@@ -347,11 +442,19 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const [statusMessage, setStatusMessage] = useState('');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationStore, setConversationStore] = useState<AiConversationStore>(() => loadConversationStore());
+  const [activeConversationId, setActiveConversationId] = useState(() => {
+    const store = loadConversationStore();
+    return store.activeId || store.conversations[0]?.id || '';
+  });
+  const [panelWidth, setPanelWidth] = useState(loadPanelWidth);
+  const [minimized, setMinimized] = useState(loadPanelMinimized);
   const [loading, setLoading] = useState(false);
   const [selectedSectionId, setSelectedSectionId] = useState<number | ''>('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const hydratedConversationIdRef = useRef('');
 
   const settings = useMemo(() => loadAiSettings(), [open]);
   const knowledge = useMemo(() => loadKnowledgePack(), [open, messages.length]);
@@ -359,6 +462,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const textModel = getTextModel(settings);
   const selectedSection = textSections.find(section => section.id === selectedSectionId);
   const hasStreamingMessage = messages.some(message => message.streaming);
+  const activeConversation = conversationStore.conversations.find(conversation => conversation.id === activeConversationId);
 
   useEffect(() => {
     if (!loading) return;
@@ -370,6 +474,53 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length, loading]);
+
+  useEffect(() => {
+    if (!open) return;
+    hydratedConversationIdRef.current = '';
+    const stored = loadConversationStore();
+    let active = stored.conversations.find(conversation => conversation.id === stored.activeId)
+      || stored.conversations[0];
+
+    if (!active) {
+      active = createStoredConversation(documentContext.title);
+      stored.conversations = [active];
+      stored.activeId = active.id;
+      saveConversationStore(stored);
+    }
+
+    setConversationStore(stored);
+    setActiveConversationId(active.id);
+    setMessages(sanitizeMessagesForStorage(active.messages || []));
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !activeConversationId) return;
+    if (hydratedConversationIdRef.current !== activeConversationId) {
+      hydratedConversationIdRef.current = activeConversationId;
+      return;
+    }
+    setConversationStore(current => {
+      const now = new Date().toISOString();
+      const sanitized = sanitizeMessagesForStorage(messages);
+      const existing = current.conversations.find(conversation => conversation.id === activeConversationId);
+      const updatedConversation: StoredAiConversation = {
+        ...(existing || createStoredConversation(documentContext.title)),
+        id: activeConversationId,
+        title: conversationTitleFromMessages(sanitized, existing?.title || documentContext.title || 'Nova conversa'),
+        documentTitle: existing?.documentTitle || repairMojibake(documentContext.title || ''),
+        updatedAt: now,
+        messages: sanitized
+      };
+      const conversations = [
+        updatedConversation,
+        ...current.conversations.filter(conversation => conversation.id !== activeConversationId)
+      ].slice(0, MAX_STORED_CONVERSATIONS);
+      const next = { activeId: activeConversationId, conversations };
+      saveConversationStore(next);
+      return next;
+    });
+  }, [messages, activeConversationId, open, documentContext.title]);
 
   useEffect(() => {
     if (!open) return;
@@ -402,14 +553,22 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     replacementMode = false,
     proposalMode: ProposalMode | false = false
   ): AiChatMessage[] => {
-    const documentText = buildDocumentText(documentContext).slice(0, 7000);
-    const chatHistory = formatChatHistory(history);
+    const documentTextLimit = textModel.startsWith('qwen2.5:0.5b') || textModel.startsWith('smollm2:360m') ? 4200 : 7000;
+    const documentText = buildDocumentText(documentContext).slice(0, documentTextLimit);
+    const chatHistory = proposalMode ? '' : formatChatHistory(history);
     const sectionText = targetSection
       ? `SECAO ALVO PARA TRABALHAR:\nID: ${targetSection.id}\nTitulo: ${targetSection.title}\nTexto atual:\n${htmlToPlainText(targetSection.content || '') || '[sem texto]'}`
       : '';
 
+    const proposalModeRule = proposalMode === 'replace'
+      ? '- Proponha somente alteracoes em secoes existentes. Nao crie novas secoes.\n'
+      : proposalMode === 'insert'
+      ? '- Proponha somente novas secoes. Nao substitua secoes existentes.\n'
+      : proposalMode === 'mixed'
+      ? '- Pode propor substituicoes e novas secoes quando forem claramente necessarias.\n'
+      : '';
     const proposalInstruction = proposalMode
-      ? `TAREFA:\n${instruction}\n\nFORMATO OBRIGATORIO:\nComece com RESUMO: uma frase curta.\n\nPara alterar uma secao existente, use um bloco por secao exatamente assim:\n[PROPOSTA_REVISAO]\nID: numero da secao existente\nTITULO: titulo da secao existente\nTEXTO:\ntexto completo revisado para substituir apenas esta secao\n[/PROPOSTA_REVISAO]\n\nPara criar uma nova secao, use um bloco exatamente assim:\n[PROPOSTA_NOVA_SECAO]\nTITULO: titulo da nova secao\nTEXTO:\ntexto completo da nova secao\n[/PROPOSTA_NOVA_SECAO]\n\nREGRAS:\n${proposalMode === 'replace' ? '- Proponha somente alteracoes em secoes existentes. Nao crie novas secoes.\n' : ''}${proposalMode === 'insert' ? '- Proponha somente novas secoes. Nao substitua secoes existentes.\n' : ''}${proposalMode === 'mixed' ? '- Pode propor substituicoes e novas secoes quando forem claramente necessarias.\n' : ''}- Use apenas os fatos existentes no documento.\n- Nao escreva colchetes ou marcadores fora dos blocos acima.\n- Nao use formato em ingles.\n- Se nao houver proposta segura, responda apenas o resumo explicando a lacuna.`
+      ? `TAREFA:\n${instruction}\n\nFORMATO OBRIGATORIO:\nComece com RESUMO: uma frase curta.\n\nPara alterar uma secao existente, use um bloco por secao exatamente assim:\n[PROPOSTA_REVISAO]\nID: numero da secao existente\nTITULO: titulo da secao existente\nTEXTO:\ntexto completo revisado para substituir apenas esta secao\n[/PROPOSTA_REVISAO]\n\nPara criar uma nova secao, use um bloco exatamente assim:\n[PROPOSTA_NOVA_SECAO]\nTITULO: titulo da nova secao\nTEXTO:\ntexto completo da nova secao\n[/PROPOSTA_NOVA_SECAO]\n\nREGRAS:\n${proposalModeRule}- Use apenas os fatos existentes no documento.\n- Nao copie o documento inteiro.\n- Nao repita o RESUMO.\n- Nao gere a mesma proposta mais de uma vez.\n- Cada TEXTO deve ter no maximo 2 paragrafos curtos.\n- Nao escreva colchetes ou marcadores fora dos blocos acima.\n- Nao use formato em ingles.\n- Se nao houver proposta segura, responda apenas o resumo explicando a lacuna.`
       : '';
 
     return [
@@ -494,6 +653,19 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         const parsed = parseSectionProposals(response.text, textSections);
         content = parsed.displayText;
         proposals = parsed.proposals;
+        const looseInsert = proposalMode && proposalMode !== 'replace'
+          ? response.text.match(/TITULO\s*:\s*([^\n\r]+)\s*TEXTO\s*:\s*([\s\S]+)/i)
+          : null;
+        if (!proposals.length && looseInsert) {
+          proposals = [{
+            id: makeId(),
+            type: 'insert',
+            sectionTitle: repairMojibake(looseInsert[1]).trim() || options.insertTitle || 'Nova secao',
+            content: repairMojibake(looseInsert[2]).replace(/\n*RESUMO\s*:[\s\S]*$/i, '').trim(),
+            status: 'pending'
+          }];
+          content = `Preparei uma proposta de nova secao: "${proposals[0].sectionTitle}".`;
+        }
         if (!proposals.length && options.insertTitle && response.text.trim()) {
           proposals = [{
             id: makeId(),
@@ -503,6 +675,10 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
             status: 'pending'
           }];
           content = `Preparei uma proposta de nova secao: "${options.insertTitle}".`;
+        } else if (!proposals.length) {
+          content = response.metrics.doneReason === 'length'
+            ? 'A IA local atingiu o limite antes de gerar propostas clicaveis. A conversa foi salva; tente novamente com o modelo Qwen2.5 1.5B ou peca por uma secao especifica.'
+            : 'A IA local respondeu fora do formato de propostas clicaveis. A conversa foi salva; tente novamente pedindo para revisar uma secao especifica ou use o modelo Qwen2.5 1.5B.';
         }
       } else if (options.replacementMode && targetSection) {
         proposals = [{
@@ -555,7 +731,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         } else {
           pushMessage({ id: makeId(), role: 'assistant', content: message });
         }
-        if (/modelo.*parou|runner.*parou|resource|recurso|memoria|memory/i.test(message)) {
+        if (/modelo.*parou|runner.*parou|resource|recurso|memoria|memory|repetitiva|incompleta|formato/i.test(message)) {
           setStatus('online');
         } else {
           setStatus('offline');
@@ -692,10 +868,89 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     runAssistant(instruction, { displayText: label, insertTitle: title, proposalMode: 'insert' });
   };
 
+  const switchConversation = (conversationId: string) => {
+    const conversation = conversationStore.conversations.find(item => item.id === conversationId);
+    if (!conversation) return;
+    setActiveConversationId(conversation.id);
+    setMessages(sanitizeMessagesForStorage(conversation.messages || []));
+    const next = { ...conversationStore, activeId: conversation.id };
+    setConversationStore(next);
+    saveConversationStore(next);
+  };
+
+  const startNewConversation = () => {
+    const conversation = createStoredConversation(documentContext.title);
+    const next = {
+      activeId: conversation.id,
+      conversations: [conversation, ...conversationStore.conversations].slice(0, MAX_STORED_CONVERSATIONS)
+    };
+    setConversationStore(next);
+    setActiveConversationId(conversation.id);
+    setMessages([]);
+    setInput('');
+    saveConversationStore(next);
+  };
+
+  const setPanelMinimized = (value: boolean) => {
+    setMinimized(value);
+    try {
+      localStorage.setItem(AI_PANEL_MINIMIZED_KEY, String(value));
+    } catch {}
+  };
+
+  const startPanelResize = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const maxWidth = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, window.innerWidth));
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const nextWidth = clamp(window.innerWidth - moveEvent.clientX, MIN_PANEL_WIDTH, maxWidth);
+      setPanelWidth(nextWidth);
+      try {
+        localStorage.setItem(AI_PANEL_WIDTH_KEY, String(Math.round(nextWidth)));
+      } catch {}
+    };
+    const stopResize = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', stopResize);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', stopResize);
+  };
+
   if (!open) return null;
 
+  if (minimized) {
+    return (
+      <div className="fixed bottom-4 right-4 z-[80] flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-2xl">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-black text-slate-900">Assistente IA</p>
+          <p className="truncate text-[10px] font-bold uppercase text-slate-400">
+            {activeConversation?.title || 'Conversa salva'}
+          </p>
+        </div>
+        <button onClick={() => setPanelMinimized(false)} className="rounded-xl bg-slate-900 px-3 py-2 text-[10px] font-black uppercase text-white">
+          Abrir
+        </button>
+        <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Fechar">
+          <span className="material-symbols-outlined text-[18px]">close</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <aside className="fixed right-0 top-0 z-[80] flex h-screen w-full max-w-[640px] flex-col border-l border-slate-200 bg-white shadow-2xl">
+    <aside
+      style={{ width: `min(100vw, ${panelWidth}px)` }}
+      className="fixed right-0 top-0 z-[80] flex h-screen w-full flex-col border-l border-slate-200 bg-white shadow-2xl"
+    >
+      <div
+        onMouseDown={startPanelResize}
+        className="absolute left-0 top-0 z-10 h-full w-2 cursor-ew-resize bg-transparent hover:bg-primary/20"
+        title="Arraste para ajustar a largura"
+      />
       <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -706,9 +961,38 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
             {statusMessage || 'Verificando IA local...'}
           </p>
         </div>
-        <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-          <span className="material-symbols-outlined">close</span>
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button onClick={() => setPanelMinimized(true)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Minimizar">
+            <span className="material-symbols-outlined">remove</span>
+          </button>
+          <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Fechar">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="border-b border-slate-100 px-5 py-3">
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={activeConversationId}
+            onChange={event => switchConversation(event.target.value)}
+            disabled={loading}
+            className="min-w-[180px] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold disabled:opacity-60"
+          >
+            {conversationStore.conversations.map(conversation => (
+              <option key={conversation.id} value={conversation.id}>
+                {conversation.title} - {new Date(conversation.updatedAt).toLocaleDateString('pt-BR')}
+              </option>
+            ))}
+          </select>
+          <button
+            disabled={loading}
+            onClick={startNewConversation}
+            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
+          >
+            Nova conversa
+          </button>
+        </div>
       </div>
 
       <div className="border-b border-slate-100 px-5 py-3">

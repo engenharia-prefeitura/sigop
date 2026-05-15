@@ -442,7 +442,7 @@ const getModelOptions = (model: string, hasImages = false) => {
 
   if (model.startsWith('qwen2.5:0.5b') || model.startsWith('smollm2:360m')) {
     return {
-      num_predict: 1400,
+      num_predict: 800,
       num_ctx: 3072,
       num_thread: 2,
       temperature: 0.2,
@@ -549,6 +549,14 @@ const isDegenerateResponse = (text: string) => {
   const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (/^(yes|no|sim|nao|ok)\.?$/i.test(normalized.trim())) return true;
   if (/\b([a-z0-9]{1,10})(?:[\s.,;:!?-]+\1){8,}\b/i.test(normalized)) return true;
+  if ((normalized.match(/\bresumo\b/g) || []).length > 2) return true;
+  if ((normalized.match(/\btitulo\b/g) || []).length > 3) return true;
+
+  const repeatedBlocks = normalized
+    .split(/\n{2,}/)
+    .map(block => block.replace(/\s+/g, ' ').trim())
+    .filter(block => block.length > 120);
+  if (new Set(repeatedBlocks).size < repeatedBlocks.length) return true;
 
   const words = normalized.match(/[a-z0-9]{1,20}/g) || [];
   if (words.length < 24) return false;

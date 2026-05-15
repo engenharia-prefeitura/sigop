@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sigop-pwa-v2';
+const CACHE_NAME = 'sigop-pwa-v3';
 const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
 const withBase = path => `${BASE_PATH}${path}`;
 const APP_SHELL = [
