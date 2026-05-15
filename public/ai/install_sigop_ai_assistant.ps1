@@ -69,21 +69,20 @@ function Install-BridgeMonitor {
 }
 
 function Set-UserEnv {
-  param([string]$Name, [AllowNull()][string]$Value)
-  [Environment]::SetEnvironmentVariable($Name, $Value, "User")
-  if ($null -eq $Value) {
+  param([string]$Name, [AllowNull()][AllowEmptyString()][string]$Value)
+  if ([string]::IsNullOrWhiteSpace($Value)) {
+    [Environment]::SetEnvironmentVariable($Name, $null, "User")
     Remove-Item "Env:\$Name" -ErrorAction SilentlyContinue
   } else {
+    [Environment]::SetEnvironmentVariable($Name, $Value, "User")
     Set-Item "Env:\$Name" $Value
   }
 }
 
 function Set-UserEnvAndSetx {
-  param([string]$Name, [AllowNull()][string]$Value)
+  param([string]$Name, [AllowNull()][AllowEmptyString()][string]$Value)
   Set-UserEnv $Name $Value
-  if ($null -eq $Value) {
-    [Environment]::SetEnvironmentVariable($Name, $null, "User")
-  } else {
+  if (-not [string]::IsNullOrWhiteSpace($Value)) {
     setx $Name $Value | Out-Null
   }
 }
