@@ -35,6 +35,20 @@ type AssistantAction =
 type SectionProposalStatus = 'pending' | 'accepted' | 'rejected';
 type ProposalMode = 'replace' | 'insert' | 'mixed';
 
+type SuggestionJob =
+  | {
+      type: 'replace';
+      label: string;
+      instruction: string;
+      section: any;
+    }
+  | {
+      type: 'insert';
+      label: string;
+      title: string;
+      instruction: string;
+    };
+
 interface SectionProposal {
   id: string;
   type: 'replace' | 'insert';
@@ -66,6 +80,13 @@ interface StoredAiConversation {
 interface AiConversationStore {
   activeId: string;
   conversations: StoredAiConversation[];
+}
+
+interface FixedSectionTemplate {
+  key: string;
+  label: string;
+  title: string;
+  instruction: string;
 }
 
 const AI_CONVERSATIONS_KEY = 'sigop_ai_conversations_v1';
@@ -116,6 +137,54 @@ Agrupe por secao quando possivel e escreva perguntas objetivas para o tecnico re
 const COMPLEMENT_INSTRUCTION = `Analise o documento e proponha apenas novas secoes complementares que realmente agreguem valor tecnico.
 Nao substitua secoes existentes nesta tarefa.
 Use somente fatos existentes e deixe claro quando uma nova secao depender de informacao faltante.`;
+
+const FIXED_SECTION_TEMPLATES: FixedSectionTemplate[] = [
+  {
+    key: 'analise',
+    label: 'Analise Tecnica',
+    title: 'Analise Tecnica',
+    instruction: 'Redija a secao Analise Tecnica com linguagem formal, objetiva e cautelosa, usando somente os fatos textuais existentes. Maximo 2 paragrafos.'
+  },
+  {
+    key: 'manifestacao',
+    label: 'Manifestacao Tecnica',
+    title: 'Manifestacao Tecnica',
+    instruction: 'Redija a secao Manifestacao Tecnica com base apenas nos fatos informados, sem inventar causa, gravidade, responsavel ou norma. Maximo 2 paragrafos.'
+  },
+  {
+    key: 'encaminhamentos',
+    label: 'Encaminhamentos',
+    title: 'Encaminhamentos',
+    instruction: 'Redija encaminhamentos sugeridos de forma cautelosa. Se nao houver dados suficientes para encaminhar, indique a verificacao necessaria sem inventar providencias.'
+  },
+  {
+    key: 'conclusao',
+    label: 'Conclusao',
+    title: 'Conclusao',
+    instruction: CONCLUSION_INSTRUCTION
+  },
+  {
+    key: 'parecer',
+    label: 'Parecer Tecnico',
+    title: 'Parecer Tecnico',
+    instruction: 'Redija um parecer tecnico sintetico em ate 3 paragrafos, com objeto, analise e manifestacao final no mesmo texto. Use somente fatos existentes.'
+  },
+  {
+    key: 'relatorio',
+    label: 'Relatorio Tecnico',
+    title: 'Relatorio Tecnico',
+    instruction: 'Redija uma sintese de relatorio tecnico em ate 3 paragrafos, organizando objeto, fatos relevantes e consideracoes finais. Use somente fatos existentes.'
+  },
+  {
+    key: 'pendencias',
+    label: 'Pendencias',
+    title: 'Pendencias de Informacao',
+    instruction: 'Liste pendencias de informacao que impedem um documento mais completo. Escreva perguntas objetivas para o tecnico responder, sem inventar fatos.'
+  }
+];
+
+const getFixedSectionTemplate = (key: string) =>
+  FIXED_SECTION_TEMPLATES.find(template => template.key === key) || FIXED_SECTION_TEMPLATES[0];
 
 const htmlToPlainText = (html: string) => {
   const div = document.createElement('div');
@@ -535,6 +604,128 @@ const buildDocumentText = (context: AIAssistantPanelProps['documentContext']) =>
   ].filter(Boolean).join('\n\n');
 };
 
+const buildCompactDocumentText = (
+  context: AIAssistantPanelProps['documentContext'],
+  currentSectionId?: number
+) => {
+  const textSections = context.sections.filter(section => section.type !== 'photos');
+  const currentSection = textSections.find(section => Number(section.id) === Number(currentSectionId));
+  const otherSections = textSections
+    .filter(section => Number(section.id) !== Number(currentSectionId))
+    .slice(0, 8)
+    .map(section => {
+      const text = htmlToPlainText(section.content || '').replace(/\s+/g, ' ').trim();
+      return `- ${section.title}: ${text.slice(0, 420) || '[sem texto]'}`;
+    })
+    .join('\n');
+
+  const photoCaptions = context.sections
+    .filter(section => section.type === 'photos')
+    .flatMap(section => section.items || [])
+    .map((photo: any, index: number) => ({ caption: String(photo.caption || ''), index }))
+    .filter(item => !isGenericPhotoCaption(item.caption, item.index))
+    .slice(0, 8)
+    .map(item => `Foto ${item.index + 1}: ${item.caption.trim().slice(0, 220)}`)
+    .join('\n');
+
+  return [
+    `Titulo: ${context.title || 'Sem titulo'}`,
+    `Tipo: ${context.typeName || 'Geral'}`,
+    `Descricao: ${context.description || 'Sem descricao'}`,
+    `Data do evento: ${context.eventDate || 'Nao informada'}`,
+    currentSection ? `Secao atual: ${currentSection.title}` : '',
+    otherSections ? `Outras secoes do documento:\n${otherSections}` : '',
+    photoCaptions ? `Legendas informadas pelo usuario:\n${photoCaptions}` : ''
+  ].filter(Boolean).join('\n\n').slice(0, 5200);
+};
+
+const cleanupSuggestionText = (value: string, title?: string) => {
+  let text = repairMojibake(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n?Tokens:\s*entrada[\s\S]*$/i, '')
+    .replace(/\[(?:\/)?(?:PROPOSTA_SECAO|PROPOSTA_REVISAO|PROPOSTA_NOVA_SECAO|PROPOSED SECOES|PROPOSTA SECAO)\]/gi, '')
+    .replace(/^\s*(?:RESUMO|TITULO|TITULO DA SECAO|SECAO|TEXTO)\s*:\s*/gim, '')
+    .replace(/^\s*#{1,6}\s*/gm, '')
+    .replace(/\*\*/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (title) {
+    const normalizedTitle = normalizeText(title);
+    text = text
+      .split('\n')
+      .filter((line, index) => index > 0 || normalizeText(line.replace(/[:.-]+$/g, '')) !== normalizedTitle)
+      .join('\n')
+      .trim();
+  }
+
+  return text;
+};
+
+const countSuspiciousHeadings = (text: string) => {
+  const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+  return lines.filter(line =>
+    /^#{1,6}\s+/.test(line)
+    || /^\d+\s*[\.\)-]\s+/.test(line)
+    || /^(informacoes iniciais|registro de campo|analise tecnica|manifestacao tecnica|encaminhamentos|conclusao|parecer tecnico|registros fotograficos)\s*:?$/i.test(normalizeText(line))
+  ).length;
+};
+
+const hasRepeatedBlocks = (text: string) => {
+  const blocks = text
+    .toLowerCase()
+    .split(/\n{2,}|[.;]\s+/)
+    .map(block => normalizeText(block))
+    .filter(block => block.length > 50);
+  return new Set(blocks).size < blocks.length;
+};
+
+const textSimilarity = (a: string, b: string) => {
+  const wordsA = new Set(normalizeText(a).split(/\s+/).filter(word => word.length > 2));
+  const wordsB = new Set(normalizeText(b).split(/\s+/).filter(word => word.length > 2));
+  if (!wordsA.size || !wordsB.size) return 0;
+  const shared = Array.from(wordsA).filter(word => wordsB.has(word)).length;
+  return shared / Math.max(wordsA.size, wordsB.size);
+};
+
+const validateSuggestionText = (
+  rawText: string,
+  options: {
+    title: string;
+    currentText?: string;
+    doneReason?: string;
+  }
+) => {
+  if (options.doneReason === 'length') {
+    return { ok: false as const, reason: 'resposta truncada pelo limite do modelo' };
+  }
+
+  const text = cleanupSuggestionText(rawText, options.title);
+  const normalized = normalizeText(text);
+
+  if (text.length < 40) return { ok: false as const, reason: 'texto muito curto' };
+  if (text.length > 2600) return { ok: false as const, reason: 'texto longo demais' };
+  if (/\b(Tokens|PROPOSTA_|TITULO\s*:|TEXTO\s*:)\b/i.test(text)) return { ok: false as const, reason: 'formato interno apareceu na resposta' };
+  if (/nao\s+(ha|existe|possuo|tenho).{0,80}(informacao|dados|elementos)/i.test(normalized)) return { ok: false as const, reason: 'faltaram dados para gerar texto seguro' };
+  if (countSuspiciousHeadings(text) > 1) return { ok: false as const, reason: 'a IA tentou gerar varias secoes em uma resposta' };
+  if (hasRepeatedBlocks(text)) return { ok: false as const, reason: 'texto repetitivo' };
+  if (options.currentText && textSimilarity(text, options.currentText) > 0.96) return { ok: false as const, reason: 'texto quase igual ao atual' };
+
+  return { ok: true as const, text };
+};
+
+const findTemplateFromPrompt = (prompt: string) => {
+  const normalized = normalizeText(prompt);
+  return FIXED_SECTION_TEMPLATES.find(template => normalized.includes(template.key))
+    || (/(analise|avaliacao)/.test(normalized) ? FIXED_SECTION_TEMPLATES.find(template => template.key === 'analise') : undefined)
+    || (/(manifestacao|manifestar)/.test(normalized) ? FIXED_SECTION_TEMPLATES.find(template => template.key === 'manifestacao') : undefined)
+    || (/(encaminhamento|providencia)/.test(normalized) ? FIXED_SECTION_TEMPLATES.find(template => template.key === 'encaminhamentos') : undefined)
+    || (/(conclusao|concluir)/.test(normalized) ? FIXED_SECTION_TEMPLATES.find(template => template.key === 'conclusao') : undefined)
+    || (/(parecer)/.test(normalized) ? FIXED_SECTION_TEMPLATES.find(template => template.key === 'parecer') : undefined)
+    || (/(pendencia|pergunta|lacuna)/.test(normalized) ? FIXED_SECTION_TEMPLATES.find(template => template.key === 'pendencias') : undefined);
+};
+
 const formatChatHistory = (history: ChatMessage[]) => history
   .filter(message => message.role !== 'system' && message.content.trim())
   .slice(-8)
@@ -865,44 +1056,283 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     setLoading(false);
   };
 
-  const sendChat = async () => {
-    if (!input.trim()) return;
-    const prompt = input.trim();
-    setInput('');
+  const getSuggestionRequestOptions = (): AiRequestOptions => {
+    const isSmallModel = textModel.startsWith('qwen2.5:0.5b') || textModel.startsWith('smollm2:360m');
+    return {
+      numPredict: isSmallModel ? 650 : 950,
+      numCtx: isSmallModel ? 3072 : 4096
+    };
+  };
+
+  const buildSuggestionMessages = (job: SuggestionJob): AiChatMessage[] => {
+    const section = job.type === 'replace' ? job.section : undefined;
+    const sectionText = section ? htmlToPlainText(section.content || '') : '';
+    const title = job.type === 'replace' ? String(section?.title || job.label) : job.title;
+    const localKnowledge = buildKnowledgeContext(knowledge).slice(0, 2400);
+
+    return [
+      {
+        role: 'system',
+        content: [
+          'Voce e um redator tecnico local do SIGOP.',
+          'Responda somente com o texto final da secao solicitada.',
+          'Nao use markdown, titulo, numeracao, saudacao, explicacao, bloco especial ou pergunta final.',
+          'Nao copie o documento inteiro. Nao crie outras secoes.',
+          'Use somente fatos textuais existentes. Nao afirme que analisou imagens.'
+        ].join('\n')
+      },
+      { role: 'system', content: localKnowledge || 'Sem pacote de conhecimento local adicional.' },
+      { role: 'user', content: `CONTEXTO RESUMIDO DO DOCUMENTO:\n${buildCompactDocumentText(documentContext, section?.id)}` },
+      ...(section ? [{
+        role: 'user' as const,
+        content: `SECAO A SUBSTITUIR:\nTitulo: ${title}\nTexto atual:\n${sectionText || '[sem texto]'}`
+      }] : []),
+      {
+        role: 'user',
+        content: [
+          `TAREFA: ${job.instruction}`,
+          `Titulo da secao que o SIGOP vai usar: ${title}`,
+          'FORMATO: responda apenas o texto final dessa unica secao, em no maximo 2 paragrafos curtos, salvo quando a tarefa pedir lista de pendencias.'
+        ].join('\n\n')
+      }
+    ];
+  };
+
+  const buildProposalFromJob = async (job: SuggestionJob, controller: AbortController) => {
+    const response = await chatWithLocalAiDetailed(
+      buildSuggestionMessages(job),
+      settings,
+      controller.signal,
+      textModel,
+      undefined,
+      getSuggestionRequestOptions()
+    );
+    const title = job.type === 'replace' ? String(job.section?.title || job.label) : job.title;
+    const currentText = job.type === 'replace' ? htmlToPlainText(job.section?.content || '') : '';
+    const validation = validateSuggestionText(response.text, {
+      title,
+      currentText: job.type === 'replace' ? currentText : undefined,
+      doneReason: response.metrics.doneReason
+    });
+
+    if (!validation.ok) {
+      return {
+        proposal: null,
+        skipped: `${title}: ${validation.reason}`,
+        metrics: response.metrics
+      };
+    }
+
+    const proposal: SectionProposal = job.type === 'replace'
+      ? {
+        id: makeId(),
+        type: 'replace',
+        sectionId: Number(job.section.id),
+        sectionTitle: title,
+        content: validation.text,
+        status: 'pending'
+      }
+      : {
+        id: makeId(),
+        type: 'insert',
+        sectionTitle: title,
+        content: validation.text,
+        status: 'pending'
+      };
+
+    return { proposal, skipped: '', metrics: response.metrics };
+  };
+
+  const runSuggestionJobs = async (displayText: string, jobs: SuggestionJob[]) => {
+    if (loading) return;
+
+    const usableJobs = jobs.filter(job => {
+      if (job.type === 'insert') return true;
+      return htmlToPlainText(job.section?.content || '').trim().length >= 20;
+    });
+
+    pushMessage({ id: makeId(), role: 'user', content: displayText });
+
+    if (!usableJobs.length) {
+      pushMessage({
+        id: makeId(),
+        role: 'assistant',
+        content: 'Nao encontrei secoes textuais com conteudo suficiente para gerar sugestoes seguras.'
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+
+    const assistantMessageId = makeId();
+    setMessages(current => [...current, {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: `Gerando sugestoes controladas pelo SIGOP... 0/${usableJobs.length}`,
+      proposals: []
+    }]);
+
+    const proposals: SectionProposal[] = [];
+    const skipped: string[] = [];
+
+    try {
+      for (let index = 0; index < usableJobs.length; index += 1) {
+        const job = usableJobs[index];
+        if (controller.signal.aborted) throw new DOMException('Abortado', 'AbortError');
+
+        setMessages(current => current.map(message => (
+          message.id === assistantMessageId
+            ? {
+              ...message,
+              content: `Gerando sugestoes controladas pelo SIGOP... ${index + 1}/${usableJobs.length}\nAtual: ${job.label}`,
+              proposals: [...proposals]
+            }
+            : message
+        )));
+
+        const result = await buildProposalFromJob(job, controller);
+        if (result.proposal) {
+          proposals.push(result.proposal);
+        } else if (result.skipped) {
+          skipped.push(result.skipped);
+        }
+
+        setMessages(current => current.map(message => (
+          message.id === assistantMessageId
+            ? { ...message, proposals: [...proposals] }
+            : message
+        )));
+      }
+
+      const skippedText = skipped.length
+        ? `\n\nIgnoradas por seguranca: ${skipped.slice(0, 5).join('; ')}${skipped.length > 5 ? '; ...' : ''}`
+        : '';
+      const content = proposals.length
+        ? `Preparei ${proposals.length} sugestao(oes) com botoes criados pelo SIGOP.${skippedText}`
+        : `A IA nao gerou texto aproveitavel para criar botoes seguros.${skippedText}`;
+
+      setMessages(current => current.map(message => (
+        message.id === assistantMessageId
+          ? { ...message, content, proposals: [...proposals], streaming: false, liveApproxTokens: undefined }
+          : message
+      )));
+    } catch (err: any) {
+      const content = err?.name === 'AbortError'
+        ? 'Geracao de sugestoes cancelada.'
+        : (err?.message || 'Falha ao gerar sugestoes.');
+      setMessages(current => current.map(message => (
+        message.id === assistantMessageId
+          ? { ...message, content, proposals: [...proposals], streaming: false, liveApproxTokens: undefined }
+          : message
+      )));
+      if (err?.name !== 'AbortError' && !/modelo.*parou|runner.*parou|resource|recurso|memoria|memory|repetitiva|incompleta/i.test(content)) {
+        setStatus('offline');
+        setStatusMessage(content);
+      }
+    } finally {
+      setLoading(false);
+      abortRef.current = null;
+    }
+  };
+
+  const runReplaceSectionSuggestion = (section: any, instruction?: string, label?: string) => {
+    const sectionTitle = String(section?.title || 'Secao');
+    runSuggestionJobs(label || `Melhorar a secao "${sectionTitle}"`, [{
+      type: 'replace',
+      label: sectionTitle,
+      section,
+      instruction: instruction || `Reescreva a secao "${sectionTitle}" com linguagem tecnica formal, mantendo somente os fatos existentes e deixando o texto pronto para substituir a secao atual.`
+    }]);
+  };
+
+  const runReviewSections = (instruction?: string) => {
+    const jobs: SuggestionJob[] = textSections.map(section => ({
+      type: 'replace',
+      label: String(section.title || 'Secao'),
+      section,
+      instruction: instruction
+        ? `${instruction}\nAplique a tarefa somente a secao "${section.title}". Responda apenas com o novo texto dessa secao.`
+        : `Reescreva a secao "${section.title}" com linguagem tecnica formal, objetiva e cautelosa. Preserve os fatos existentes e nao acrescente dados novos.`
+    }));
+    runSuggestionJobs('Revisar secoes do documento', jobs);
+  };
+
+  const runFixedSectionSuggestion = (template: FixedSectionTemplate, extraInstruction?: string) => {
+    runSuggestionJobs(`Criar ${template.label}`, [{
+      type: 'insert',
+      label: template.label,
+      title: template.title,
+      instruction: extraInstruction || template.instruction
+    }]);
+  };
+
+  const runComplementSuggestions = () => {
+    const existingTitles = new Set(textSections.map(section => normalizeText(String(section.title || ''))));
+    const jobs = FIXED_SECTION_TEMPLATES
+      .filter(template => !existingTitles.has(normalizeText(template.title)))
+      .filter(template => ['analise', 'manifestacao', 'encaminhamentos', 'conclusao'].includes(template.key))
+      .slice(0, 4)
+      .map<SuggestionJob>(template => ({
+        type: 'insert',
+        label: template.label,
+        title: template.title,
+        instruction: template.instruction
+      }));
+
+    runSuggestionJobs('Complementar documento com novas secoes', jobs);
+  };
+
+  const runPromptAsSuggestion = (prompt: string) => {
     const wantsReplacement = looksLikeReplacementRequest(prompt);
     const wantsInsert = looksLikeInsertRequest(prompt);
 
-    if (wantsReplacement && wantsInsert) {
-      await runAssistant(prompt, { displayText: prompt, proposalMode: 'mixed' });
-      return;
-    }
-
-    if (wantsInsert) {
-      await runAssistant(prompt, { displayText: prompt, proposalMode: 'insert' });
-      return;
-    }
-
-    if (isGeneralReviewRequest(prompt)) {
-      await runAssistant(prompt, { displayText: prompt, proposalMode: 'replace' });
-      return;
+    if (isGeneralReviewRequest(prompt) || (wantsReplacement && !findSectionFromText(prompt, textSections) && !selectedSection)) {
+      runReviewSections(prompt);
+      return true;
     }
 
     if (wantsReplacement) {
       const target = findSectionFromText(prompt, textSections) || selectedSection;
-      if (target && !isGeneralReviewRequest(prompt)) {
-        await runAssistant(prompt, {
-          displayText: prompt,
-          targetSectionId: Number(target.id),
-          replacementMode: true
-        });
-        return;
+      if (target) {
+        runReplaceSectionSuggestion(target, prompt, prompt);
+        return true;
       }
-      await runAssistant(prompt, { displayText: prompt, proposalMode: 'replace' });
-      return;
+    }
+
+    if (wantsInsert) {
+      const template = findTemplateFromPrompt(prompt);
+      if (template) {
+        runFixedSectionSuggestion(template, prompt);
+      } else {
+        runSuggestionJobs(prompt, [{
+          type: 'insert',
+          label: 'Nova secao sugerida',
+          title: 'Nova secao sugerida',
+          instruction: `${prompt}\nCrie uma unica secao complementar. Responda somente com o texto final da secao.`
+        }]);
+      }
+      return true;
     }
 
     if (looksLikeDocumentMutationRequest(prompt)) {
-      await runAssistant(prompt, { displayText: prompt, proposalMode: 'mixed' });
+      if (/(criar|crie|adicionar|adicione|incluir|inclua|complementar|complemente)/.test(normalizeText(prompt))) {
+        runComplementSuggestions();
+      } else {
+        runReviewSections(prompt);
+      }
+      return true;
+    }
+
+    return false;
+  };
+
+  const sendChat = async () => {
+    if (!input.trim()) return;
+    const prompt = input.trim();
+    setInput('');
+    if (runPromptAsSuggestion(prompt)) {
       return;
     }
 
@@ -976,18 +1406,16 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
   const improveSelectedSection = () => {
     if (!selectedSection) return;
-    runAssistant(
-      `Melhore tecnicamente a secao "${selectedSection.title}", mantendo somente os fatos existentes e deixando o texto pronto para substituir a secao.`,
-      {
-        displayText: `Melhorar a secao "${selectedSection.title}"`,
-        targetSectionId: selectedSection.id,
-        replacementMode: true
-      }
-    );
+    runReplaceSectionSuggestion(selectedSection);
   };
 
   const runInsertCommand = (label: string, instruction: string, title: string) => {
-    runAssistant(instruction, { displayText: label, insertTitle: title, proposalMode: 'insert' });
+    runSuggestionJobs(label, [{
+      type: 'insert',
+      label,
+      title,
+      instruction
+    }]);
   };
 
   const runFromOptions = (action: () => void) => {
@@ -1168,27 +1596,27 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
             </section>
 
             <section>
-              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-400">Comandos prontos</label>
+              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-wide text-slate-400">Sugestoes do documento</label>
               <div className="grid grid-cols-2 gap-2">
-                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runAssistant(REVIEW_INSTRUCTION, { displayText: 'Revisar documento', proposalMode: 'replace' }))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runReviewSections())} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
                   Revisar
                 </button>
-                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runInsertCommand('Gerar parecer', OPINION_INSTRUCTION, 'Parecer Tecnico'))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runFixedSectionSuggestion(getFixedSectionTemplate('parecer')))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
                   Parecer
                 </button>
-                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runInsertCommand('Gerar relatorio', REPORT_INSTRUCTION, 'Relatorio Tecnico'))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runFixedSectionSuggestion(getFixedSectionTemplate('relatorio')))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
                   Relatorio
                 </button>
-                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runInsertCommand('Criar conclusao', CONCLUSION_INSTRUCTION, 'Conclusao'))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runFixedSectionSuggestion(getFixedSectionTemplate('conclusao')))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
                   Conclusao
                 </button>
-                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runAssistant(PENDING_INSTRUCTION, { displayText: 'Sugerir pendencias' }))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runFixedSectionSuggestion(getFixedSectionTemplate('pendencias')))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
                   Pendencias
                 </button>
-                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runAssistant(IMPROVE_TEXT_INSTRUCTION, { displayText: 'Melhorar texto geral', proposalMode: 'replace' }))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runReviewSections(IMPROVE_TEXT_INSTRUCTION))} className="rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
                   Texto geral
                 </button>
-                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(() => runAssistant(COMPLEMENT_INSTRUCTION, { displayText: 'Complementar documento', proposalMode: 'insert' }))} className="col-span-2 rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
+                <button disabled={loading || status !== 'online'} onClick={() => runFromOptions(runComplementSuggestions)} className="col-span-2 rounded-xl border border-slate-200 px-3 py-2 text-left text-[11px] font-black uppercase text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50">
                   Complementar documento
                 </button>
               </div>
@@ -1249,7 +1677,7 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                 <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">
-                      Propostas da IA
+                      Sugestoes do SIGOP
                     </span>
                     {message.proposals.some(proposal => proposal.status === 'pending') && (
                       <div className="flex flex-wrap gap-2">
@@ -1306,6 +1734,12 @@ const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                             className="rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-black uppercase text-slate-500 hover:bg-white"
                           >
                             Recusar
+                          </button>
+                          <button
+                            onClick={() => navigator.clipboard?.writeText(proposal.content)}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-black uppercase text-slate-500 hover:bg-white"
+                          >
+                            Copiar texto
                           </button>
                         </div>
                       )}
