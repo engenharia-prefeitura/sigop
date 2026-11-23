@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import Documents from './pages/Documents';
 import Editor from './pages/Editor';
 import Settings from './pages/Settings';
+import AiSettings from './pages/AiSettings';
 import Projects from './pages/Projects';
 import ProjectDetails from './pages/ProjectDetails';
 import Users from './pages/Users';
@@ -14,7 +15,6 @@ import PrintPreview from './pages/PrintPreview';
 import GeneralReportPreview from './pages/GeneralReportPreview';
 import DesignProjects from './pages/DesignProjects';
 import FieldSurveys from './pages/FieldSurveys';
-import AIAssistantSettings from './pages/AIAssistantSettings';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import { AuthProvider, useAuth } from './components/AuthContext';
@@ -95,8 +95,8 @@ const router = createHashRouter([
           { path: "/editor/:id", element: <Editor /> },
           { path: "/notifications", element: <Notifications /> },
           { path: "/field-surveys", element: <FieldSurveys /> },
-          { path: "/ai-assistant", element: <AIAssistantSettings /> },
           { path: "/settings", element: <Settings /> },
+          { path: "/ai-settings", element: <AiSettings /> },
         ]
       }
     ]

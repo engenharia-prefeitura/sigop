@@ -3,7 +3,6 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { isNoRowsError } from '../lib/supabaseCompat';
-import { AI_VISIBILITY_CHANGED_EVENT, getAiAssistantEnabled } from '../lib/aiVisibility';
 
 import { useAuth } from './AuthContext';
 
@@ -14,7 +13,6 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   const [collapsed, setCollapsed] = React.useState(true);
   const [isAdmin, setIsAdmin] = React.useState(false);
-  const [aiAssistantEnabled, setAiAssistantEnabled] = React.useState(true);
   const { user } = useAuth(); // Global User
 
   React.useEffect(() => {
@@ -30,33 +28,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
     checkAdmin();
   }, [user]);
 
-  React.useEffect(() => {
-    let active = true;
-
-    const refreshAiVisibility = async () => {
-      const enabled = await getAiAssistantEnabled();
-      if (active) setAiAssistantEnabled(enabled);
-    };
-
-    const handleAiVisibilityChanged = () => {
-      void refreshAiVisibility();
-    };
-
-    void refreshAiVisibility();
-    window.addEventListener(AI_VISIBILITY_CHANGED_EVENT, handleAiVisibilityChanged);
-
-    return () => {
-      active = false;
-      window.removeEventListener(AI_VISIBILITY_CHANGED_EVENT, handleAiVisibilityChanged);
-    };
-  }, []);
-
   const menuItems = [
     { path: '/', icon: 'dashboard', label: 'Dashboard' },
     { path: '/documents', icon: 'description', label: 'Documentos Técnicos' },
     { path: '/field-surveys', icon: 'offline_bolt', label: 'Campo Offline' },
     { path: '/notifications', icon: 'notifications_active', label: 'Notificações' },
-    { path: '/ai-assistant', icon: 'psychology', label: 'Assistente IA', aiOnly: true },
     {
       path: '/projects', icon: 'engineering', label: 'Obras',
       children: [
@@ -65,6 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
       ]
     },
     { path: '/designs', icon: 'draw', label: 'Banco de Projetos' },
+    { path: '/ai-settings', icon: 'smart_toy', label: 'Assistente IA' },
     { path: '/users', icon: 'group', label: 'Usuários', adminOnly: true },
   ];
 
@@ -72,7 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   const isFieldSurveysPage = location.pathname === '/field-surveys';
   const isFloatingCollapsed = isFieldSurveysPage && collapsed;
 
-  const visibleItems = menuItems.filter(item => (!item.adminOnly || isAdmin) && (!item.aiOnly || aiAssistantEnabled));
+  const visibleItems = menuItems.filter(item => (!item.adminOnly || isAdmin));
 
   return (
     <aside
