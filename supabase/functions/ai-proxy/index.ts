@@ -604,9 +604,10 @@ async function listModels(format: ApiFormat, provider: ProviderId, base: string,
   if (provider === 'openai') list = list.filter((m) => !OPENAI_NON_CHAT.test(String(m.id)));
   return list.map((m: any): ModelInfo => {
     const id = String(m.id ?? m.name ?? m.model ?? '');
-    const mods: string[] | undefined = m.architecture?.input_modalities;
-    const vision = Array.isArray(mods) ? mods.includes('image') : (provider === 'deepseek' ? false : VISION_RE.test(id));
-    return { id, name: m.name && m.name !== id ? m.name : undefined, vision, contextLength: m.context_length };
+    // Formatos: OpenRouter (architecture.input_modalities) e OpenCode (modalities.input, ex.: 'image/png').
+    const mods: string[] | undefined = m.architecture?.input_modalities ?? m.modalities?.input;
+    const vision = Array.isArray(mods) ? mods.some((x) => String(x).startsWith('image')) : (provider === 'deepseek' ? false : VISION_RE.test(id));
+    return { id, name: m.name && m.name !== id ? m.name : undefined, vision, contextLength: m.context_length ?? m.limit?.context };
   }).filter((m) => m.id);
 }
 
