@@ -263,6 +263,8 @@ function buildOpenAI(p: ChatParams): BuiltReq {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (p.key !== NO_KEY) headers['Authorization'] = `Bearer ${p.key}`;
   if (p.provider === 'openrouter') headers['X-Title'] = 'SIGOP';
+  // OpenCode (Zen/Go) exige um id de sessao para rotear a requisicao.
+  if (/(^|\.)opencode\.ai(\/|$)/.test(p.base.replace(/^https?:\/\//, ''))) headers['x-opencode-session'] = `sigop-${crypto.randomUUID()}`;
   return { url: `${p.base}/chat/completions`, headers, body: JSON.stringify(body) };
 }
 
