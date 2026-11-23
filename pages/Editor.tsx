@@ -4,8 +4,8 @@ import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../components/AuthContext';
 import RichTextEditor from '../components/RichTextEditor';
-import AIAssistantPanel from '../components/AIAssistantPanel';
-import { AI_VISIBILITY_CHANGED_EVENT, getAiAssistantEnabled } from '../lib/aiVisibility';
+import AiChatPanel from '../components/ai/AiChatPanel';
+import type { DocState, DocumentBridge } from '../lib/ai/types';
 
 // Helper de debounce para salvar automaticamente (agora no storage)
 const useDebounce = (value: any, delay: number) => {
@@ -78,9 +78,8 @@ const Editor: React.FC = () => {
   const [password, setPassword] = useState('');
   const [zoomedPhoto, setZoomedPhoto] = useState<string | null>(null);
   const [expandedSectionId, setExpandedSectionId] = useState<number | null>(null);
-  const [hasAlreadySigned, setHasAlreadySigned] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [aiAssistantEnabled, setAiAssistantEnabled] = useState(true);
+  const [hasAlreadySigned, setHasAlreadySigned] = useState(false);
 
   // Debounce para salvar conteúdo
   const debouncedSections = useDebounce(sections, 1000);
@@ -92,31 +91,6 @@ const Editor: React.FC = () => {
   useEffect(() => {
     loadInitialData();
   }, [id]);
-
-  useEffect(() => {
-    let active = true;
-
-    const refreshAiVisibility = async () => {
-      const enabled = await getAiAssistantEnabled();
-      if (active) setAiAssistantEnabled(enabled);
-    };
-
-    const handleAiVisibilityChanged = () => {
-      void refreshAiVisibility();
-    };
-
-    void refreshAiVisibility();
-    window.addEventListener(AI_VISIBILITY_CHANGED_EVENT, handleAiVisibilityChanged);
-
-    return () => {
-      active = false;
-      window.removeEventListener(AI_VISIBILITY_CHANGED_EVENT, handleAiVisibilityChanged);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!aiAssistantEnabled) setAiPanelOpen(false);
-  }, [aiAssistantEnabled]);
 
   // Bloqueio de Navegação (React Router)
   const blocker = useBlocker(
@@ -368,6 +342,33 @@ const Editor: React.FC = () => {
     }
   };
 
+  // --- Ponte para o Assistente IA ---
+  const aiStateRef = useRef<DocState | null>(null);
+  aiStateRef.current = {
+    title,
+    description,
+    eventDate,
+    typeName: docTypesList.find(t => t.id === docType)?.name || 'Geral',
+    sections: sections as any
+  };
+  const aiBridgeRef = useRef<DocumentBridge | null>(null);
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  if (!aiBridgeRef.current) {
+    aiBridgeRef.current = {
+      getState: () => aiStateRef.current as DocState,
+      update: (mutator) => {
+        const next = mutator(aiStateRef.current as DocState);
+        aiStateRef.current = next;
+        setTitle(next.title);
+        setDescription(next.description);
+        setEventDate(next.eventDate);
+        setSections(next.sections as any[]);
+      },
+      isEditable: () => statusRef.current === 'draft'
+    };
+  }
+
   // --- Seções ---
   const updateSection = (index: number, content: string) => {
     const newSections = [...sections];
@@ -416,22 +417,6 @@ const Editor: React.FC = () => {
       content: '',
       items: []
     }]);
-  };
-
-  const insertAiSection = (sectionTitle: string, content: string) => {
-    setSections([...sections, {
-      id: Date.now(),
-      title: sectionTitle,
-      type: 'text',
-      content: content.replace(/\n/g, '<br/>'),
-      items: []
-    }]);
-  };
-
-  const replaceSectionContent = (sectionId: number, content: string) => {
-    setSections(current => current.map(section => (
-      section.id === sectionId ? { ...section, content } : section
-    )));
   };
 
   const handlePhotoUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -607,21 +592,19 @@ const Editor: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {aiAssistantEnabled && (
-            <button
-              onClick={() => setAiPanelOpen(true)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 h-10 rounded-lg text-xs font-bold uppercase flex items-center gap-2 shadow"
-              title="Abrir assistente IA local"
-            >
-              <span className="material-symbols-outlined text-[18px]">psychology</span> IA
-            </button>
-          )}
-
           {(status === 'awaiting_signature' || status === 'finished') && (
             <button onClick={handleRevertDraft} className="text-xs font-bold text-gray-500 hover:text-red-500 uppercase px-4 border border-gray-200 h-10 rounded-lg hover:border-red-200 bg-white">
               {status === 'finished' ? 'Desfazer Finalização' : 'Voltar para Rascunho'}
             </button>
           )}
+
+          <button
+            onClick={() => setAiPanelOpen(o => !o)}
+            className="bg-white hover:bg-violet-50 text-violet-600 border border-violet-200 px-4 h-10 rounded-lg text-xs font-bold uppercase flex items-center gap-2 transition-all"
+            title="Assistente de IA"
+          >
+            <span className="material-symbols-outlined text-[18px]">smart_toy</span> IA
+          </button>
 
           {status === 'draft' && (
             <div className="flex gap-2">
@@ -800,22 +783,14 @@ const Editor: React.FC = () => {
         </div>
       </div>
 
-      {aiAssistantEnabled && (
-        <AIAssistantPanel
-          open={aiPanelOpen}
-          onClose={() => setAiPanelOpen(false)}
-          disabled={status !== 'draft'}
-          documentContext={{
-            title,
-            typeName: docTypesList.find(t => t.id === docType)?.name || 'Geral',
-            description,
-            eventDate,
-            sections
-          }}
-          onInsertSection={insertAiSection}
-          onReplaceSection={replaceSectionContent}
-        />
-      )}
+      <AiChatPanel
+        open={aiPanelOpen}
+        onClose={() => setAiPanelOpen(false)}
+        bridge={aiBridgeRef.current as DocumentBridge}
+        compressForDocument={(blob) => compressImage(blob as File)}
+        documentId={id || null}
+        documentTitle={title}
+      />
 
       {/* Modal de Edição Expandida */}
       {expandedSectionId !== null && (

@@ -28,3 +28,6 @@ temp_pessoas.txt
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase CLI local
+supabase/.temp
